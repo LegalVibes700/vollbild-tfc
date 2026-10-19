@@ -53,7 +53,7 @@
       gap: 12px;
     }
 
-    /* Live-Score-Overlay (Glassmorphism mit Breiten 20%, 30%, 40%) */
+    /* Live-Score-Overlay (Glassmorphism mit Breiten 10%, 15%, 20%, 30%, 40%) */
     .score-card {
       position: absolute;
       top: 16px;
@@ -103,7 +103,7 @@
       transform: translateX(-50%) translateY(0);
     }
 
-    /* Scrollleiste für Satz-Details falls nötig */
+    /* Scrollleiste für Satz-Details */
     .custom-scroll::-webkit-scrollbar {
       width: 4px;
     }
@@ -209,14 +209,13 @@
         Initialisiere...
       </div>
 
-      <!-- SATZ-DETAILS (ALLE NICHT-0:0 SÄTZE VOLLSTÄNDIG SICHTBAR) -->
+      <!-- SATZ-DETAILS (ALLE NICHT-0:0 SÄTZE SICHTBAR) -->
       <div id="setsContainer1" style="border-top: 1px solid rgba(255,255,255,0.15); padding-top: 8px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <span style="font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.5);">Aktive Sätze</span>
           <span id="setsCountBadge" style="font-size: 9px; font-family: monospace; color: rgba(255,255,255,0.4); font-weight: 700;">0 Sätze</span>
         </div>
         
-        <!-- Keine künstliche Begrenzung auf 32vh mehr, zeigt alle gespielten Sätze direkt an -->
         <div id="setsList1" class="custom-scroll" style="max-height: 65vh; overflow-y: auto; padding-right: 2px;">
           <div style="font-size: 11px; color: rgba(255,255,255,0.5); font-style: italic; padding: 4px 0;">Lade Satzdetails...</div>
         </div>
@@ -280,17 +279,19 @@
       </div>
     </div>
 
-    <!-- 3. BOX-GRÖSSE: NUR 20%, 30%, 40% (OHNE SCHIEBEREGLER) -->
+    <!-- 3. BOX-GRÖSSE: 10%, 15%, 20%, 30%, 40% -->
     <div>
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-        <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: rgba(255,255,255,0.5);">Box-Breite</span>
+        <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: rgba(255,255,255,0.5);">Box-Breite (Bildschirm)</span>
         <span id="boxSizeBadge" style="font-size: 12px; font-family: monospace; font-weight: 800; color: #34d399;">20%</span>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center;">
-        <button class="box-size-btn" onclick="setBoxSize(20)" data-size="20" style="background: #ffffff; border: none; color: #000; padding: 10px; border-radius: 12px; font-size: 13px; font-weight: 900; cursor: pointer;">20%</button>
-        <button class="box-size-btn" onclick="setBoxSize(30)" data-size="30" style="background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 10px; border-radius: 12px; font-size: 13px; font-weight: 900; cursor: pointer;">30%</button>
-        <button class="box-size-btn" onclick="setBoxSize(40)" data-size="40" style="background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 10px; border-radius: 12px; font-size: 13px; font-weight: 900; cursor: pointer;">40%</button>
+      <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; text-align: center;">
+        <button class="box-size-btn" onclick="setBoxSize(10)" data-size="10" style="background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 9px 4px; border-radius: 12px; font-size: 12px; font-weight: 900; cursor: pointer;">10%</button>
+        <button class="box-size-btn" onclick="setBoxSize(15)" data-size="15" style="background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 9px 4px; border-radius: 12px; font-size: 12px; font-weight: 900; cursor: pointer;">15%</button>
+        <button class="box-size-btn" onclick="setBoxSize(20)" data-size="20" style="background: #ffffff; border: none; color: #000; padding: 9px 4px; border-radius: 12px; font-size: 12px; font-weight: 900; cursor: pointer;">20%</button>
+        <button class="box-size-btn" onclick="setBoxSize(30)" data-size="30" style="background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 9px 4px; border-radius: 12px; font-size: 12px; font-weight: 900; cursor: pointer;">30%</button>
+        <button class="box-size-btn" onclick="setBoxSize(40)" data-size="40" style="background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 9px 4px; border-radius: 12px; font-size: 12px; font-weight: 900; cursor: pointer;">40%</button>
       </div>
     </div>
 
@@ -370,8 +371,10 @@
     let isStarting = false;
     let currentFacingMode = "environment";
     let currentZoom = 1;
+    let currentBoxSizePercent = 20;
     let activeStream = null;
     let menuTimeout = null;
+    let lastCachedSaetze = null;
 
     const startupOverlay = document.getElementById('startupOverlay');
     const inputMatchUrl1 = document.getElementById('inputMatchUrl1');
@@ -407,15 +410,22 @@
     const inputMatchUrl2 = document.getElementById('inputMatchUrl2');
     const match2StatusLabel = document.getElementById('match2StatusLabel');
 
-    /* ================= 2. DYNAMISCHE BOX-GRÖSSE (NUR 20, 30, 40) ================= */
+    /* ================= 2. DYNAMISCHE BOX-GRÖSSE (10, 15, 20, 30, 40) ================= */
     function setBoxSize(percent) {
-      const valid = [20, 30, 40];
+      const valid = [10, 15, 20, 30, 40];
       let p = parseInt(percent, 10);
       if (!valid.includes(p)) p = 20;
+      currentBoxSizePercent = p;
 
       liveOverlay.style.setProperty('width', `${p}vw`, 'important');
       liveOverlay.style.setProperty('min-width', '0px', 'important');
       if (boxSizeBadge) boxSizeBadge.textContent = `${p}%`;
+
+      // Header-Elemente bei sehr schmaler Box (<=20%) ebenfalls harmonisch anpassen
+      const isSmall = p <= 20;
+      if (teams1Display) teams1Display.style.fontSize = isSmall ? '12px' : '15px';
+      if (score1Display) score1Display.style.fontSize = isSmall ? '28px' : '38px';
+      liveOverlay.style.padding = isSmall ? '10px' : '14px';
 
       try { localStorage.setItem('kkl_box_size', p); } catch(e) {}
 
@@ -428,6 +438,11 @@
           btn.style.color = '#ffffff';
         }
       });
+
+      // Satzliste sofort mit neuer Schriftgröße / Zeilenumbruch neu rendern
+      if (lastCachedSaetze) {
+        renderSatzListe(lastCachedSaetze);
+      }
     }
 
     /* ================= 3. ID- & API-URL ERMITTLUNG ================= */
@@ -465,16 +480,22 @@
       return side === "home" ? "Heim" : "Gast";
     }
 
+    // Formatierung mit mehreren Leerzeichen OHNE Komma (z. B. "5:4   5:3")
     function formatScore(game) {
       if (!game) return "- : -";
+      const separator = "&nbsp;&nbsp;&nbsp;";
       if (Array.isArray(game.score) && game.score.length > 0) {
         const sets = game.score
           .filter(s => s && (s.home !== undefined || s.guest !== undefined))
           .map(s => `${s.home ?? 0}:${s.guest ?? 0}`);
-        if (sets.length > 0) return sets.join(", ");
+        if (sets.length > 0) return sets.join(separator);
       }
-      if (typeof game.result === "string" && game.result.trim()) return game.result.trim();
-      if (typeof game.score === "string" && game.score.trim()) return game.score.trim();
+      if (typeof game.result === "string" && game.result.trim()) {
+        return game.result.trim().replace(/[,/]\s*/g, separator);
+      }
+      if (typeof game.score === "string" && game.score.trim()) {
+        return game.score.trim().replace(/[,/]\s*/g, separator);
+      }
       return "- : -";
     }
 
@@ -580,8 +601,10 @@
       }
     });
 
-    /* ================= 6. SÄTZE: GROSSE SCHRIFT, MEHR RAUM, FILTER != 0:0 ================= */
+    /* ================= 6. SÄTZE: DYNAMISCHE SCHRIFTGRÖSSE & EINZEILIGKEIT BEI <=20% ================= */
     function renderSatzListe(saetze) {
+      lastCachedSaetze = saetze;
+
       if (!showSets) {
         setsContainer1.style.display = 'none';
         return;
@@ -591,8 +614,8 @@
       // FILTER: Nur Sätze anzeigen, die NICHT 0:0 oder ungespielt (-:-) sind
       const aktiveSaetze = (saetze || []).filter(s => {
         if (!s || !s.score) return false;
-        const sc = s.score.replace(/\s+/g, '');
-        if (sc === '-:-' || sc === '-' || sc === '0:0' || sc === '0:0,0:0' || sc === '') return false;
+        const sc = s.score.replace(/&nbsp;|\s+/g, '');
+        if (sc === '-:-' || sc === '-' || sc === '0:0' || sc === '0:00:0' || sc === '') return false;
         return /[1-9]/.test(sc);
       });
 
@@ -604,16 +627,24 @@
 
       setsCountBadge.textContent = `${aktiveSaetze.length} ${aktiveSaetze.length === 1 ? 'Satz' : 'Sätze'}`;
       
-      // Spieler einzeilig & größer (13-14px) mit voller Ausnutzung der Breite, Tore deutlich größer (16px)
+      const isSmall = currentBoxSizePercent <= 20;
+
+      // Bei <= 20% Bildschirmbreite: kompakte Schrift, bleibt immer in einer Zeile
+      const playerFontSize = isSmall ? '10px' : '13px';
+      const vsFontSize = isSmall ? '9px' : '11px';
+      const scoreFontSize = isSmall ? '12px' : '16px';
+      const rowPadding = isSmall ? '5px 8px' : '8px 12px';
+      const scorePadding = isSmall ? '3px 6px' : '5px 10px';
+
       setsList1.innerHTML = aktiveSaetze.map(s => `
-        <div style="padding: 8px 12px; border-radius: 12px; background: rgba(255,255,255,0.08); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid rgba(255,255,255,0.09);">
-          <div style="flex: 1; min-width: 0;">
-            <span style="font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); font-weight: 800; display: block; margin-bottom: 2px;">${s.label}</span>
-            <div style="font-size: 13px; font-weight: 700; color: #ffffff; line-height: 1.3; word-break: break-word;">
-              ${s.home} <span style="color: rgba(255,255,255,0.45); font-weight: 400; font-size: 11px; margin: 0 4px;">vs.</span> ${s.guest}
+        <div style="padding: ${rowPadding}; border-radius: 12px; background: rgba(255,255,255,0.08); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid rgba(255,255,255,0.09); min-width: 0;">
+          <div style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            <span style="font-size: 8px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); font-weight: 800; display: block; margin-bottom: 2px;">${s.label}</span>
+            <div style="font-size: ${playerFontSize}; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${s.home} <span style="color: rgba(255,255,255,0.45); font-weight: 400; font-size: ${vsFontSize}; margin: 0 2px;">vs.</span> ${s.guest}
             </div>
           </div>
-          <div style="flex-shrink: 0; font-size: 16px; font-weight: 900; background: rgba(255,255,255,0.16); padding: 5px 10px; border-radius: 8px; font-family: monospace; color: #ffffff; white-space: nowrap; letter-spacing: 0.5px;">
+          <div style="flex-shrink: 0; font-size: ${scoreFontSize}; font-weight: 900; background: rgba(255,255,255,0.16); padding: ${scorePadding}; border-radius: 8px; font-family: monospace; color: #ffffff; white-space: nowrap; letter-spacing: 0.5px;">
             ${s.score}
           </div>
         </div>
