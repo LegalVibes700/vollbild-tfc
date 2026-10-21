@@ -1,81 +1,138 @@
-// Eine feste ID für den Sender
-const STREAM_ID = 'mein-wlan-kamera-stream-xyz'; 
-let peer;
-const videoElement = document.getElementById('video-element');
-const statusText = document.getElementById('status');
-const roleSelection = document.getElementById('role-selection');
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WLAN Video Stream Test</title>
+    <!-- Zuverlässiges und schnelles CDN für PeerJS nutzen -->
+    <script src="https://cloudflare.com"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #222; color: #fff; padding: 20px 10px; margin: 0; }
+        video { width: 100%; max-width: 500px; background: #000; border-radius: 8px; margin-top: 10px; display: block; margin-left: auto; margin-right: auto; }
+        button { background: #007bff; color: white; border: none; padding: 15px 30px; font-size: 16px; border-radius: 5px; cursor: pointer; margin: 10px; width: 80%; max-width: 300px; display: inline-block; }
+        #role-selection { margin-top: 50px; }
+        .error-box { background: #551a1a; border: 1px solid #ff4d4d; color: #ffcccc; padding: 10px; margin: 20px auto; max-width: 500px; border-radius: 5px; text-align: left; font-family: monospace; display: none; }
+    </style>
+</head>
+<body>
 
-// Hilfsfunktion, um Fehler direkt auf dem Display anzuzeigen
-function showDebug(msg) {
-    statusText.innerHTML += "<br><span style='color:#ff4d4d; font-size:14px;'>" + msg + "</span>";
-    console.error(msg);
-}
-
-function initPeer(id = null) {
-    try {
-        peer = id ? new Peer(id) : new Peer();
-        
-        peer.on('error', (err) => {
-            showDebug("PeerJS Fehler Typ: " + err.type + " - " + err.message);
-        });
-    } catch(e) {
-        showDebug("Fehler bei PeerJS-Initialisierung: " + e.message);
-    }
-}
-
-// --- ROLLE 1: SENDER (KAMERA) ---
-function startAsBroadcaster() {
-    roleSelection.classList.add('hidden');
-    statusText.innerText = "Kamera wird angefordert...";
+    <h1>WLAN Kamera-Streaming</h1>
     
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showDebug("Kamera-API (getUserMedia) wird von diesem Browser NICHT unterstützt!");
-        return;
-    }
+    <!-- Hier landen alle sichtbaren Systemfehler -->
+    <div id="error-display" class="error-box"></div>
 
-    initPeer(STREAM_ID);
+    <!-- Haupt-Statusanzeige -->
+    <h2 id="status">Bereit. Bitte Rolle wählen:</h2>
 
-    navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "environment" }, 
-        audio: false 
-    })
-    .then((stream) => {
-        videoElement.srcObject = stream;
-        statusText.innerText = "Kamera aktiv. Warte auf Zuschauer...";
+    <!-- Rollenauswahl beim Start -->
+    <div id="role-selection">
+        <button id="btn-sender" onclick="startAsBroadcaster()">1. Kamera starten (Sender)</button>
+        <button id="btn-viewer" onclick="startAsViewer()">2. Stream anschauen (Empfänger)</button>
+    </div>
+
+    <!-- Video Element -->
+    <video id="video-element" autoplay playsinline muted></video>
+
+    <script>
+        // Feste ID, damit sich die Geräte im selben WLAN finden
+        const STREAM_ID = 'mein-privates-wlan-kamera-stream-2026'; 
+        let peer = null;
         
-        peer.on('call', (call) => {
-            call.answer(stream);
-            statusText.innerText = "Zuschauer verbunden!";
-        });
-    })
-    .catch((err) => {
-        showDebug("Kamera-Zugriff fehlgeschlagen: " + err.name + " - " + err.message);
-    });
-}
+        const videoElement = document.getElementById('video-element');
+        const statusText = document.getElementById('status');
+        const roleSelection = document.getElementById('role-selection');
+        const errorDisplay = document.getElementById('error-display');
 
-// --- ROLLE 2: EMPFÄNGER (ZUSCHAUER) ---
-function startAsViewer() {
-    roleSelection.classList.add('hidden');
-    statusText.innerText = "Verbinde mit Peer-Netzwerk...";
-    initPeer();
-
-    peer.on('open', () => {
-        statusText.innerText = "Rufe Kamera-Handy ab...";
-        const call = peer.call(STREAM_ID, null);
-        
-        if(!call) {
-            showDebug("Anruf konnte nicht gestartet werden.");
-            return;
+        // Funktion um Fehler unübersehbar auf dem Handy anzuzeigen
+        function showError(title, message) {
+            errorDisplay.style.display = "block";
+            errorDisplay.innerHTML += `<strong>[${title}]</strong> ${message}<br>`;
         }
 
-        call.on('stream', (remoteStream) => {
-            statusText.innerText = "Live-Übertragung aktiv";
-            videoElement.srcObject = remoteStream;
-        });
-        
-        // Falls der Verbindungspartner auflegt oder wegbricht
-        call.on('error', (err) => {
-            showDebug("Verbindungsfehler im Call: " + err.message);
-        });
-    });
-}
+        // Überprüfen, ob PeerJS überhaupt geladen werden konnte
+        window.onload = function() {
+            if (typeof Peer === 'undefined') {
+                showError("Bibliotheks-Fehler", "Die PeerJS-Bibliothek konnte nicht aus dem Internet geladen werden. Bitte Seite neu laden oder Internetverbindung prüfen.");
+            }
+        };
+
+        function initPeer(id = null) {
+            try {
+                // Falls die Bibliothek fehlt, fangen wir es ab
+                if (typeof Peer === 'undefined') {
+                    showError("Start-Fehler", "PeerJS fehlt. Verbindung unmöglich.");
+                    return false;
+                }
+                
+                peer = id ? new Peer(id) : new Peer();
+                
+                peer.on('error', (err) => {
+                    showError("Netzwerk-Fehler (" + err.type + ")", err.message);
+                });
+                
+                return true;
+            } catch(e) {
+                showError("Crash", e.message);
+                return false;
+            }
+        }
+
+        // --- ROLLE 1: SENDER (KAMERA) ---
+        function startAsBroadcaster() {
+            roleSelection.style.display = 'none';
+            statusText.innerText = "Initialisiere Netzwerk...";
+            
+            if (!initPeer(STREAM_ID)) return;
+
+            statusText.innerText = "Fordere Kamera an...";
+            
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showError("Browser-Fehler", "Dieser Browser erlaubt keinen Zugriff auf Web-Kameras (getUserMedia fehlt).");
+                return;
+            }
+
+            navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" }, 
+                audio: false 
+            })
+            .then((stream) => {
+                videoElement.srcObject = stream;
+                statusText.innerText = "Kamera aktiv! Warte auf Zuschauer...";
+                
+                peer.on('call', (call) => {
+                    call.answer(stream);
+                    statusText.innerText = "Zuschauer hat sich verbunden!";
+                });
+            })
+            .catch((err) => {
+                showError("Kamera-Zugriff verweigert", "Bitte erlauben Sie der Webseite den Zugriff auf die Kamera in den Handyeinstellungen. Details: " + err.message);
+            });
+        }
+
+        // --- ROLLE 2: EMPFÄNGER (ZUSCHAUER) ---
+        function startAsViewer() {
+            roleSelection.style.display = 'none';
+            statusText.innerText = "Verbinde mit dem Netzwerk...";
+            
+            if (!initPeer()) return;
+
+            peer.on('open', () => {
+                statusText.innerText = "Rufe Kamera-Stream ab...";
+                const call = peer.call(STREAM_ID, null);
+                
+                if (!call) {
+                    showError("Verbindungs-Fehler", "Der Anruf konnte nicht gestartet werden.");
+                    return;
+                }
+
+                call.on('stream', (remoteStream) => {
+                    statusText.innerText = "Live-Übertragung läuft!";
+                    videoElement.srcObject = remoteStream;
+                    // iOS/Android erzwingt oft, dass empfangene Videos anfangs stumm sein müssen
+                    videoElement.muted = true; 
+                });
+            });
+        }
+    </script>
+</body>
+</html>
