@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WLAN & Mobilfunk Kamera Stream</title>
+    <title>Kamera Live-Stream</title>
     
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 
@@ -60,17 +60,20 @@
             font-size: 17px;
         }
         .play-btn:hover { background: #059669; }
-        input[type="text"] {
+        input[type="tel"] {
             padding: 12px;
-            width: 80%;
-            max-width: 300px;
-            font-size: 16px;
+            width: 75%;
+            max-width: 260px;
+            font-size: 24px;
+            letter-spacing: 4px;
+            font-weight: bold;
             border-radius: 6px;
             border: 1px solid #444;
             background: #222;
-            color: #fff;
+            color: #60a5fa;
             margin-bottom: 12px;
             text-align: center;
+            font-family: monospace;
         }
         .error-box { 
             background: #4a1515; 
@@ -88,12 +91,11 @@
             background: #172a45; 
             border: 1px solid #2563eb; 
             color: #dbeafe; 
-            padding: 14px; 
+            padding: 16px; 
             margin: 10px auto; 
             max-width: 500px; 
             border-radius: 6px; 
             text-align: center; 
-            word-break: break-all; 
         }
         .diagnostics {
             font-family: monospace;
@@ -106,7 +108,7 @@
 </head>
 <body>
 
-    <div class="build-badge">Build: 22.10.2026, 12:35 Uhr (v1.6-metered-relay)</div>
+    <div class="build-badge">Build: 22.10.2026, 12:47 Uhr (v1.7-pin-handshake)</div>
     <h1>Kamera Live-Stream</h1>
     
     <div id="error-display" class="error-box hidden"></div>
@@ -119,18 +121,21 @@
         <button onclick="startAsViewerMode()">2. Als Zuschauer empfangen</button>
     </div>
 
+    <!-- ZUSCHAUER: NUR ZAHL EINGEBEN + RETURN-TASTE -->
     <div id="viewer-input-zone" class="hidden">
         <div class="info-box">
-            <p>Geben Sie die ID des Kamera-Geräts ein:</p>
-            <input type="text" id="target-peer-id" placeholder="z. B. stream-123456"><br>
-            <button onclick="connectToBroadcaster()">Verbindung herstellen</button>
+            <p style="margin-top: 0;">Geben Sie die 6-stellige Kamera-Zahl ein:</p>
+            <input type="tel" id="target-pin" placeholder="123456" maxlength="6" 
+                   onkeydown="if(event.key === 'Enter') connectToBroadcaster()" autofocus><br>
+            <button onclick="connectToBroadcaster()">Verbinden (oder Enter)</button>
         </div>
     </div>
 
+    <!-- SENDER: ZEIGT DIE 6-STELLIGE PIN AN -->
     <div id="share-zone" class="info-box hidden">
-        <strong>Deine Kamera-ID:</strong><br>
-        <span id="my-id-display" style="font-size: 24px; color: #60a5fa; font-family: monospace; font-weight: bold;">...generiere...</span>
-        <p style="font-size: 12px; margin-top: 8px; color: #93c5fd;">Fenster geöffnet und Display aktiv lassen.</p>
+        <strong>Deine Kamera-Zahl:</strong><br>
+        <span id="my-pin-display" style="font-size: 32px; color: #60a5fa; font-family: monospace; font-weight: bold; letter-spacing: 3px;">...</span>
+        <p style="font-size: 13px; margin: 8px 0 0 0; color: #93c5fd;">Tippen Sie nur diese Zahl auf dem Zuschauer-Gerät ein.</p>
     </div>
 
     <button id="manual-play-btn" class="play-btn hidden" onclick="startManualPlayback()">▶ Video abspielen</button>
@@ -140,7 +145,6 @@
     <script>
         let peer = null;
         let localStream = null;
-        let heartbeatTimer = null;
         let wakeLock = null;
 
         const videoElement = document.getElementById('video-element');
@@ -149,7 +153,7 @@
         const roleSelection = document.getElementById('role-selection');
         const errorDisplay = document.getElementById('error-display');
         const shareZone = document.getElementById('share-zone');
-        const myIdDisplay = document.getElementById('my-id-display');
+        const myPinDisplay = document.getElementById('my-pin-display');
         const viewerInputZone = document.getElementById('viewer-input-zone');
         const manualPlayBtn = document.getElementById('manual-play-btn');
 
@@ -167,43 +171,19 @@
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
                 }
-            } catch (err) {
-                console.log("WakeLock nicht aktiv");
-            }
+            } catch (err) {}
         }
 
-        // Erzeugt einen aktiven Dummy-Videostream mit Rendering-Takt
-        function createDummyStream() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 16;
-            canvas.height = 16;
-            const ctx = canvas.getContext('2d');
-            let toggle = false;
-            
-            setInterval(() => {
-                ctx.fillStyle = toggle ? '#111' : '#222';
-                ctx.fillRect(0, 0, 16, 16);
-                toggle = !toggle;
-            }, 1000);
-            
-            return canvas.captureStream(5);
-        }
-
-        function createPeerInstance(id = null) {
-            const finalId = id || 'stream-' + Math.floor(Math.random() * 900000 + 100000);
-            
-            const p = new Peer(finalId, {
+        // ICE-Konfiguration: STUN + Metered TURN + OpenRelay Fallback
+        function createPeerInstance(peerId) {
+            const p = new Peer(peerId, {
                 debug: 1,
                 config: {
                     iceServers: [
-                        // Google STUN für direkte Verbindungen
                         { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        
-                        // Metered STUN
                         { urls: 'stun:relay.metered.ca:80' },
-
-                        // Metered TURN (UDP Port 80 & 443)
+                        
+                        // Metered Cluster 1 (UDP & TCP)
                         {
                             urls: 'turn:relay.metered.ca:80',
                             username: 'c2654b8cb04aab3be68260cf',
@@ -214,24 +194,32 @@
                             username: 'c2654b8cb04aab3be68260cf',
                             credential: 'tAEDEsB6ODAINzJ5'
                         },
-
-                        // Metered TURN (TCP Port 80 & 443 - überwindet gesperrte UDP-Ports)
-                        {
-                            urls: 'turn:relay.metered.ca:80?transport=tcp',
-                            username: 'c2654b8cb04aab3be68260cf',
-                            credential: 'tAEDEsB6ODAINzJ5'
-                        },
                         {
                             urls: 'turn:relay.metered.ca:443?transport=tcp',
                             username: 'c2654b8cb04aab3be68260cf',
                             credential: 'tAEDEsB6ODAINzJ5'
                         },
-
-                        // Metered TURNS (Verschlüsselt über Port 443)
+                        // Metered Cluster 2 (Standard)
                         {
-                            urls: 'turns:relay.metered.ca:443?transport=tcp',
+                            urls: 'turn:standard.relay.metered.ca:80',
                             username: 'c2654b8cb04aab3be68260cf',
                             credential: 'tAEDEsB6ODAINzJ5'
+                        },
+                        {
+                            urls: 'turn:standard.relay.metered.ca:443?transport=tcp',
+                            username: 'c2654b8cb04aab3be68260cf',
+                            credential: 'tAEDEsB6ODAINzJ5'
+                        },
+                        // Ausfallsicheres OpenRelay
+                        {
+                            urls: 'turn:openrelay.metered.ca:80',
+                            username: 'openrelayproject',
+                            credential: 'openrelayproject'
+                        },
+                        {
+                            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                            username: 'openrelayproject',
+                            credential: 'openrelayproject'
                         }
                     ],
                     iceCandidatePoolSize: 10
@@ -239,35 +227,30 @@
             });
 
             p.on('disconnected', () => {
-                statusText.innerText = "Verbindung unterbrochen. Reconnecte...";
+                statusText.innerText = "Signal getrennt. Reconnecte...";
                 p.reconnect();
             });
 
             p.on('error', (err) => {
-                showError("Netzwerk (" + err.type + ")", err.message);
+                showError("Netzwerk", `${err.type}: ${err.message}`);
                 if (err.type === 'peer-unavailable') {
-                    statusText.innerText = "Kamera-ID nicht online. Stimmt die ID?";
+                    statusText.innerText = "Kamera-Zahl nicht online. Läuft die Kamera?";
                 }
             });
-
-            clearInterval(heartbeatTimer);
-            heartbeatTimer = setInterval(() => {
-                if (p && !p.destroyed && p.socket && p.socket._open) {
-                    p.socket.send({ type: 'HEARTBEAT' });
-                }
-            }, 15000);
 
             return p;
         }
 
-        function attachDiagnostics(pc) {
+        function monitorConnection(pc, role) {
             if (!pc) return;
             const update = () => {
                 setDiagnostics(pc.iceConnectionState, pc.connectionState);
                 if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-                    statusText.innerText = "Verbindung stabil! Übertragung läuft.";
+                    statusText.innerText = role === 'broadcaster' 
+                        ? "Zuschauer verbunden! Übertragung läuft." 
+                        : "Verbindung stabil! Live-Bild aktiv.";
                 } else if (pc.iceConnectionState === 'failed') {
-                    statusText.innerText = "ICE-Fehler: Verbindung blockiert.";
+                    statusText.innerText = "ICE fehlgeschlagen. Versuche Neuverbindung...";
                 }
             };
             pc.oniceconnectionstatechange = update;
@@ -290,24 +273,33 @@
                 videoElement.muted = true;
                 videoElement.play().catch(() => {});
 
-                statusText.innerText = "Verbinde mit Signal-Server...";
+                statusText.innerText = "Verbinde mit Vermittlungsserver...";
                 requestWakeLock();
-                peer = createPeerInstance();
 
-                peer.on('open', (id) => {
+                // 6-stellige Zahl generieren
+                const randomPin = Math.floor(100000 + Math.random() * 900000).toString();
+                peer = createPeerInstance('cam-' + randomPin);
+
+                peer.on('open', () => {
                     statusText.innerText = "Kamera bereit. Warte auf Zuschauer...";
                     shareZone.classList.remove('hidden');
-                    myIdDisplay.innerText = id;
+                    myPinDisplay.innerText = randomPin;
                 });
 
-                peer.on('call', (call) => {
-                    statusText.innerText = "Zuschauer empfangen. Sende Videobild...";
-                    call.answer(localStream);
+                // Zuschauer meldet sich an -> Kamera ruft Zuschauer direkt mit dem Videostream an
+                peer.on('connection', (conn) => {
+                    statusText.innerText = "Zuschauer angemeldet! Sende Videostream...";
                     
-                    // Listener erst nach answer() anhängen, wenn peerConnection existiert
-                    setTimeout(() => {
-                        attachDiagnostics(call.peerConnection);
-                    }, 50);
+                    const call = peer.call(conn.peer, localStream);
+                    if (call) {
+                        const checkPC = setInterval(() => {
+                            const pc = call.peerConnection || call._peerConnection;
+                            if (pc) {
+                                clearInterval(checkPC);
+                                monitorConnection(pc, 'broadcaster');
+                            }
+                        }, 50);
+                    }
                 });
             })
             .catch((err) => {
@@ -319,7 +311,10 @@
         function startAsViewerMode() {
             roleSelection.classList.add('hidden');
             viewerInputZone.classList.remove('hidden');
-            statusText.innerText = "Bitte ID eingeben";
+            statusText.innerText = "Bitte Zahl eingeben";
+            setTimeout(() => {
+                document.getElementById('target-pin').focus();
+            }, 100);
         }
 
         function triggerPlayback() {
@@ -333,7 +328,7 @@
                 })
                 .catch(() => {
                     manualPlayBtn.classList.remove('hidden');
-                    statusText.innerText = "Autoplay blockiert: Bitte 'Video abspielen' klicken!";
+                    statusText.innerText = "Klick erforderlich: Bitte 'Video abspielen' drücken!";
                 });
         }
 
@@ -345,52 +340,65 @@
         }
 
         function connectToBroadcaster() {
-            const targetId = document.getElementById('target-peer-id').value.trim();
-            if (!targetId) {
-                alert("Bitte Kamera-ID eingeben!");
+            let inputPin = document.getElementById('target-pin').value.trim();
+            // Bereinigung: Nur Ziffern zulassen, Präfixe wie 'cam-' tolerieren
+            inputPin = inputPin.replace(/[^0-9]/g, '');
+
+            if (inputPin.length < 4) {
+                alert("Bitte die vollständige Zahl eingeben!");
                 return;
             }
 
-            viewerInputZone.classList.add('hidden');
-            statusText.innerText = "Initialisiere Netzwerk...";
+            const targetPeerId = 'cam-' + inputPin;
 
-            peer = createPeerInstance();
+            viewerInputZone.classList.add('hidden');
+            statusText.innerText = `Kontaktiere Kamera ${inputPin}...`;
+
+            // Eigene temporäre ID für den Zuschauer
+            const viewerId = 'viewer-' + Math.floor(100000 + Math.random() * 900000);
+            peer = createPeerInstance(viewerId);
 
             peer.on('open', () => {
-                statusText.innerText = `Rufe Kamera '${targetId}' an...`;
-                
-                const dummyStream = createDummyStream();
-                const call = peer.call(targetId, dummyStream);
+                // Auf den eingehenden Videoanruf der Kamera warten
+                peer.on('call', (call) => {
+                    statusText.innerText = "Kamera sendet Stream. Verbinde...";
+                    call.answer(); // Ohne eigenen Stream antworten
 
-                if (!call) {
-                    showError("Call-Fehler", "Verbindung konnte nicht initialisiert werden.");
-                    return;
-                }
+                    const checkPC = setInterval(() => {
+                        const pc = call.peerConnection || call._peerConnection;
+                        if (pc) {
+                            clearInterval(checkPC);
+                            monitorConnection(pc, 'viewer');
+                        }
+                    }, 50);
 
-                setTimeout(() => {
-                    attachDiagnostics(call.peerConnection);
-                }, 50);
+                    call.on('stream', (remoteStream) => {
+                        statusText.innerText = "Videodaten empfangen! Starte Renderer...";
+                        videoElement.srcObject = remoteStream;
 
-                call.on('stream', (remoteStream) => {
-                    statusText.innerText = "Video-Daten empfangen. Starte Renderer...";
-                    videoElement.srcObject = remoteStream;
+                        const track = remoteStream.getVideoTracks()[0];
+                        if (track) {
+                            track.onunmute = triggerPlayback;
+                        }
 
-                    const videoTrack = remoteStream.getVideoTracks()[0];
-                    if (videoTrack) {
-                        videoTrack.onunmute = () => {
-                            triggerPlayback();
-                        };
-                    }
+                        videoElement.onloadedmetadata = triggerPlayback;
+                        setTimeout(triggerPlayback, 800);
+                    });
 
-                    videoElement.onloadedmetadata = () => {
-                        triggerPlayback();
-                    };
-
-                    setTimeout(triggerPlayback, 1000);
+                    call.on('error', (err) => {
+                        showError("Call-Fehler", err.message);
+                    });
                 });
 
-                call.on('error', (err) => {
-                    showError("Call-Fehler", err.message);
+                // Handshake an Kamera senden: "Ich bin da, bitte sende mir das Video"
+                const conn = peer.connect(targetPeerId, { reliable: true });
+
+                conn.on('open', () => {
+                    statusText.innerText = "Kamera erreicht! Warte auf Videostart...";
+                });
+
+                conn.on('error', (err) => {
+                    showError("Verbindung", err.message);
                 });
             });
         }
