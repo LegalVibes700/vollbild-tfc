@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WLAN Kamera Stream Pro</title>
+    <title>WLAN & Mobilfunk Kamera Stream</title>
     
-    <!-- PeerJS via unpkg mit Fallback auf cdnjs -->
+    <!-- PeerJS CDN mit Fallback -->
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script>
         if (typeof Peer === 'undefined') {
@@ -14,38 +14,106 @@
     </script>
 
     <style>
-        body { font-family: sans-serif; text-align: center; background: #1a1a1a; color: #fff; padding: 20px 10px; margin: 0; }
-        video { width: 100%; max-width: 500px; background: #000; border-radius: 8px; margin-top: 15px; display: block; margin-left: auto; margin-right: auto; }
-        button { background: #007bff; color: white; border: none; padding: 15px 30px; font-size: 16px; border-radius: 5px; cursor: pointer; margin: 10px; width: 85%; max-width: 300px; font-weight: bold; }
-        .error-box { background: #551a1a; border: 1px solid #ff4d4d; color: #ffcccc; padding: 12px; margin: 20px auto; max-width: 500px; border-radius: 5px; text-align: left; font-family: monospace; }
-        .info-box { background: #1e3a5f; border: 1px solid #3b82f6; color: #dbeafe; padding: 15px; margin: 20px auto; max-width: 500px; border-radius: 5px; text-align: center; word-break: break-all; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            text-align: center; 
+            background: #121212; 
+            color: #ffffff; 
+            padding: 20px 10px; 
+            margin: 0; 
+        }
+        video { 
+            width: 100%; 
+            max-width: 540px; 
+            background: #000; 
+            border-radius: 8px; 
+            margin-top: 15px; 
+            display: block; 
+            margin-left: auto; 
+            margin-right: auto; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        button { 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            padding: 14px 24px; 
+            font-size: 16px; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            margin: 8px; 
+            width: 85%; 
+            max-width: 320px; 
+            font-weight: 600; 
+            transition: background 0.2s;
+        }
+        button:hover { background: #0056b3; }
+        input[type="text"] {
+            padding: 12px;
+            width: 80%;
+            max-width: 300px;
+            font-size: 16px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            background: #222;
+            color: #fff;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        .error-box { 
+            background: #4a1515; 
+            border: 1px solid #ff4d4d; 
+            color: #ffcccc; 
+            padding: 12px; 
+            margin: 15px auto; 
+            max-width: 500px; 
+            border-radius: 6px; 
+            text-align: left; 
+            font-family: monospace; 
+            font-size: 13px;
+        }
+        .info-box { 
+            background: #172a45; 
+            border: 1px solid #2563eb; 
+            color: #dbeafe; 
+            padding: 16px; 
+            margin: 15px auto; 
+            max-width: 500px; 
+            border-radius: 6px; 
+            text-align: center; 
+            word-break: break-all; 
+        }
         .hidden { display: none; }
     </style>
 </head>
 <body>
 
-    <h1>WLAN Kamera-Streaming</h1>
+    <h1>Kamera Live-Stream</h1>
     
     <div id="error-display" class="error-box hidden"></div>
     <h2 id="status">Bereit</h2>
 
+    <!-- SCHRITT 1: ROLLENAUSWAHL -->
     <div id="role-selection">
-        <p>Wählen Sie aus, was dieses Gerät tun soll:</p>
+        <p>Wählen Sie den Modus für dieses Gerät:</p>
         <button onclick="startAsBroadcaster()">1. Als Kamera senden</button>
         <button onclick="startAsViewerMode()">2. Als Zuschauer empfangen</button>
     </div>
 
+    <!-- HILFSBOX FÜR ZUSCHAUER -->
     <div id="viewer-input-zone" class="hidden">
         <div class="info-box">
-            <p>Geben Sie die ID des Kamera-Handys ein:</p>
-            <input type="text" id="target-peer-id" placeholder="z. B. stream-123456" style="padding: 10px; width: 70%; font-size: 16px; border-radius: 4px; border: none; margin-bottom: 10px;"><br>
-            <button onclick="connectToBroadcaster()" style="padding: 10px 20px; font-size: 14px;">Verbindung herstellen</button>
+            <p>Geben Sie die ID des Kamera-Geräts ein:</p>
+            <input type="text" id="target-peer-id" placeholder="z. B. stream-123456"><br>
+            <button onclick="connectToBroadcaster()">Verbindung herstellen</button>
         </div>
     </div>
 
+    <!-- INFOBOX ZUM TEILEN FÜR DEN SENDER -->
     <div id="share-zone" class="info-box hidden">
-        <strong>Deine Kamera-ID:</strong> <span id="my-id-display" style="font-size: 20px; color: #60a5fa;">...generiere...</span>
-        <p style="font-size: 12px; margin-top: 5px;">Tippen Sie diese ID auf dem Zuschauer-Gerät ein.</p>
+        <strong>Deine Kamera-ID:</strong><br>
+        <span id="my-id-display" style="font-size: 24px; color: #60a5fa; font-family: monospace; font-weight: bold;">...generiere...</span>
+        <p style="font-size: 13px; margin: 8px 0 0 0; color: #93c5fd;">Tippen Sie diese ID auf dem Empfänger-Gerät ein.</p>
     </div>
 
     <video id="video-element" autoplay playsinline muted></video>
@@ -67,13 +135,13 @@
             errorDisplay.innerHTML += `<strong>[${title}]</strong> ${message}<br>`;
         }
 
-        // Sofortprüfung beim Laden der Seite
         window.addEventListener('DOMContentLoaded', () => {
             if (typeof Peer === 'undefined') {
-                showError("Netzwerk", "PeerJS-Bibliothek konnte nicht geladen werden. Bitte Internetverbindung und Werbeblocker prüfen.");
+                showError("Bibliothek", "PeerJS konnte nicht geladen werden. Bitte Internetverbindung prüfen.");
             }
         });
 
+        // Initialisierung mit STUN + Metered TURN Konfiguration
         function initPeer(customId = null) {
             if (typeof Peer === 'undefined') {
                 showError("Abbruch", "PeerJS ist nicht verfügbar.");
@@ -86,8 +154,30 @@
 
             try {
                 const finalId = customId || 'stream-' + Math.floor(Math.random() * 900000 + 100000);
-                peer = new Peer(finalId);
                 
+                peer = new Peer(finalId, {
+                    config: {
+                        iceServers: [
+                            // STUN Server für direkte Verbindungen
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            
+                            // Metered TURN Server (Relais für Mobilfunk & Firewalls)
+                            {
+                                urls: 'turn:global.relay.metered.ca:80',
+                                username: 'c2654b8cb04aab3be68260cf',
+                                credential: 'tAEDEsB6ODAINzJ5'
+                            },
+                            {
+                                urls: 'turn:global.relay.metered.ca:443?transport=tcp',
+                                username: 'c2654b8cb04aab3be68260cf',
+                                credential: 'tAEDEsB6ODAINzJ5'
+                            }
+                        ],
+                        iceTransportPolicy: 'all'
+                    }
+                });
+
                 peer.on('error', (err) => {
                     showError("Netzwerk-Fehler (" + err.type + ")", err.message);
                     statusText.innerText = "Fehler aufgetreten.";
@@ -101,12 +191,13 @@
             }
         }
 
+        // ROLLE 1: SENDER (KAMERA)
         function startAsBroadcaster() {
             roleSelection.classList.add('hidden');
             statusText.innerText = "Kamera wird gestartet...";
 
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                showError("Sicherheit", "Kamerazugriff erfordert HTTPS oder localhost.");
+                showError("Sicherheit", "Kamerazugriff verlangt eine HTTPS-Verbindung.");
                 return;
             }
 
@@ -114,7 +205,7 @@
             .then((stream) => {
                 localStream = stream;
                 videoElement.srcObject = stream;
-                statusText.innerText = "Kamera aktiv. Starte Netzwerkdienst...";
+                statusText.innerText = "Kamera aktiv. Verbinde mit Relay-Server...";
 
                 if (!initPeer()) {
                     statusText.innerText = "Netzwerkstart fehlgeschlagen.";
@@ -127,9 +218,10 @@
                     myIdDisplay.innerText = id;
                 });
 
+                // Zuschauer meldet sich per Datenkanal an -> Sender ruft zurück
                 peer.on('connection', (conn) => {
                     const startCall = () => {
-                        statusText.innerText = "Zuschauer verbunden!";
+                        statusText.innerText = "Zuschauer verbunden! Übertrage Bild...";
                         peer.call(conn.peer, localStream);
                     };
 
@@ -150,6 +242,7 @@
             });
         }
 
+        // ROLLE 2: EMPFÄNGER (ZUSCHAUER)
         function startAsViewerMode() {
             roleSelection.classList.add('hidden');
             viewerInputZone.classList.remove('hidden');
@@ -164,7 +257,7 @@
             }
 
             viewerInputZone.classList.add('hidden');
-            statusText.innerText = "Verbinde mit Server...";
+            statusText.innerText = "Verbinde mit Netzwerk...";
             
             if (!initPeer()) {
                 statusText.innerText = "Verbindungsaufbau abgebrochen.";
@@ -172,25 +265,27 @@
             }
 
             peer.on('open', () => {
-                statusText.innerText = `Rufe Kamera '${targetId}' auf...`;
+                statusText.innerText = `Kontaktiere Kamera '${targetId}'...`;
 
                 peer.on('call', (call) => {
-                    call.answer();
+                    call.answer(); // Antwort ohne eigenen Rückstream
                     call.on('stream', (remoteStream) => {
                         statusText.innerText = "Live-Stream läuft!";
                         videoElement.srcObject = remoteStream;
+                        videoElement.play().catch(() => {});
                     });
                     call.on('error', (err) => {
                         showError("Stream", err.message);
                     });
                 });
 
+                // Handshake an die Kamera senden
                 const conn = peer.connect(targetId);
                 conn.on('open', () => {
-                    statusText.innerText = "Kamera kontaktiert! Warte auf Video...";
+                    statusText.innerText = "Kamera erreicht! Warte auf Video-Signal...";
                 });
                 conn.on('error', (err) => {
-                    showError("Verbindung", "Kamera-ID nicht gefunden: " + err.message);
+                    showError("Verbindung", "Kamera-ID nicht erreichbar: " + err.message);
                 });
             });
         }
