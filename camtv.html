@@ -21,7 +21,7 @@
             background: #1f2937;
             color: #9ca3af;
             border: 1px solid #374151;
-            padding: 3px 8px;
+            padding: 4px 10px;
             font-size: 11px;
             border-radius: 4px;
             margin-bottom: 10px;
@@ -97,8 +97,8 @@
         }
         .diagnostics {
             font-family: monospace;
-            font-size: 11px;
-            color: #9ca3af;
+            font-size: 12px;
+            color: #93c5fd;
             margin-top: 6px;
         }
         .hidden { display: none; }
@@ -106,7 +106,7 @@
 </head>
 <body>
 
-    <div class="build-badge">Build: 22.10.2026, 12:18 Uhr (v1.5-direct)</div>
+    <div class="build-badge">Build: 22.10.2026, 12:35 Uhr (v1.6-metered-relay)</div>
     <h1>Kamera Live-Stream</h1>
     
     <div id="error-display" class="error-box hidden"></div>
@@ -172,15 +172,21 @@
             }
         }
 
-        // Erzeugt einen 16x16 Hilfs-Videotrack, damit der Zuschauer WebRTC-konform anrufen kann
+        // Erzeugt einen aktiven Dummy-Videostream mit Rendering-Takt
         function createDummyStream() {
             const canvas = document.createElement('canvas');
             canvas.width = 16;
             canvas.height = 16;
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#111';
-            ctx.fillRect(0, 0, 16, 16);
-            return canvas.captureStream(1);
+            let toggle = false;
+            
+            setInterval(() => {
+                ctx.fillStyle = toggle ? '#111' : '#222';
+                ctx.fillRect(0, 0, 16, 16);
+                toggle = !toggle;
+            }, 1000);
+            
+            return canvas.captureStream(5);
         }
 
         function createPeerInstance(id = null) {
@@ -190,24 +196,45 @@
                 debug: 1,
                 config: {
                     iceServers: [
+                        // Google STUN für direkte Verbindungen
                         { urls: 'stun:stun.l.google.com:19302' },
                         { urls: 'stun:stun1.l.google.com:19302' },
+                        
+                        // Metered STUN
+                        { urls: 'stun:relay.metered.ca:80' },
+
+                        // Metered TURN (UDP Port 80 & 443)
                         {
-                            urls: 'turn:global.relay.metered.ca:80',
+                            urls: 'turn:relay.metered.ca:80',
                             username: 'c2654b8cb04aab3be68260cf',
                             credential: 'tAEDEsB6ODAINzJ5'
                         },
                         {
-                            urls: 'turn:global.relay.metered.ca:443',
+                            urls: 'turn:relay.metered.ca:443',
+                            username: 'c2654b8cb04aab3be68260cf',
+                            credential: 'tAEDEsB6ODAINzJ5'
+                        },
+
+                        // Metered TURN (TCP Port 80 & 443 - überwindet gesperrte UDP-Ports)
+                        {
+                            urls: 'turn:relay.metered.ca:80?transport=tcp',
                             username: 'c2654b8cb04aab3be68260cf',
                             credential: 'tAEDEsB6ODAINzJ5'
                         },
                         {
-                            urls: 'turn:global.relay.metered.ca:443?transport=tcp',
+                            urls: 'turn:relay.metered.ca:443?transport=tcp',
+                            username: 'c2654b8cb04aab3be68260cf',
+                            credential: 'tAEDEsB6ODAINzJ5'
+                        },
+
+                        // Metered TURNS (Verschlüsselt über Port 443)
+                        {
+                            urls: 'turns:relay.metered.ca:443?transport=tcp',
                             username: 'c2654b8cb04aab3be68260cf',
                             credential: 'tAEDEsB6ODAINzJ5'
                         }
-                    ]
+                    ],
+                    iceCandidatePoolSize: 10
                 }
             });
 
@@ -235,13 +262,17 @@
 
         function attachDiagnostics(pc) {
             if (!pc) return;
-            pc.oniceconnectionstatechange = () => {
+            const update = () => {
                 setDiagnostics(pc.iceConnectionState, pc.connectionState);
+                if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                    statusText.innerText = "Verbindung stabil! Übertragung läuft.";
+                } else if (pc.iceConnectionState === 'failed') {
+                    statusText.innerText = "ICE-Fehler: Verbindung blockiert.";
+                }
             };
-            pc.onconnectionstatechange = () => {
-                setDiagnostics(pc.iceConnectionState, pc.connectionState);
-            };
-            setDiagnostics(pc.iceConnectionState, pc.connectionState);
+            pc.oniceconnectionstatechange = update;
+            pc.onconnectionstatechange = update;
+            update();
         }
 
         // --- 1. SENDER (HANDY / KAMERA) ---
@@ -269,11 +300,14 @@
                     myIdDisplay.innerText = id;
                 });
 
-                // Zuschauer ruft direkt an -> Sofort mit Videostream antworten
                 peer.on('call', (call) => {
                     statusText.innerText = "Zuschauer empfangen. Sende Videobild...";
-                    attachDiagnostics(call.peerConnection);
                     call.answer(localStream);
+                    
+                    // Listener erst nach answer() anhängen, wenn peerConnection existiert
+                    setTimeout(() => {
+                        attachDiagnostics(call.peerConnection);
+                    }, 50);
                 });
             })
             .catch((err) => {
@@ -325,7 +359,6 @@
             peer.on('open', () => {
                 statusText.innerText = `Rufe Kamera '${targetId}' an...`;
                 
-                // Direkter Anruf mit Dummy-Stream (verhindert Glare und Inactive-Bugs)
                 const dummyStream = createDummyStream();
                 const call = peer.call(targetId, dummyStream);
 
@@ -334,13 +367,14 @@
                     return;
                 }
 
-                attachDiagnostics(call.peerConnection);
+                setTimeout(() => {
+                    attachDiagnostics(call.peerConnection);
+                }, 50);
 
                 call.on('stream', (remoteStream) => {
                     statusText.innerText = "Video-Daten empfangen. Starte Renderer...";
                     videoElement.srcObject = remoteStream;
 
-                    // Unmute-Listener fängt den ersten echten Frame ab
                     const videoTrack = remoteStream.getVideoTracks()[0];
                     if (videoTrack) {
                         videoTrack.onunmute = () => {
