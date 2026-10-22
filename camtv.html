@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Kamera Live-Stream</title>
     
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
@@ -19,8 +22,8 @@
         .build-badge {
             display: inline-block;
             background: #1f2937;
-            color: #9ca3af;
-            border: 1px solid #374151;
+            color: #60a5fa;
+            border: 1px solid #3b82f6;
             padding: 4px 10px;
             font-size: 11px;
             border-radius: 4px;
@@ -55,16 +58,13 @@
             font-weight: 600; 
         }
         button:hover { background: #0056b3; }
-        .play-btn {
-            background: #10b981;
-            font-size: 17px;
-        }
+        .play-btn { background: #10b981; font-size: 17px; }
         .play-btn:hover { background: #059669; }
         input[type="tel"] {
             padding: 12px;
             width: 75%;
             max-width: 260px;
-            font-size: 24px;
+            font-size: 26px;
             letter-spacing: 4px;
             font-weight: bold;
             border-radius: 6px;
@@ -103,12 +103,26 @@
             color: #93c5fd;
             margin-top: 6px;
         }
+        .log-box {
+            background: #000;
+            border: 1px solid #333;
+            color: #00ff66;
+            font-family: monospace;
+            font-size: 11px;
+            text-align: left;
+            padding: 8px;
+            max-width: 620px;
+            height: 110px;
+            overflow-y: auto;
+            margin: 15px auto;
+            border-radius: 4px;
+        }
         .hidden { display: none; }
     </style>
 </head>
 <body>
 
-    <div class="build-badge">Build: 22.10.2026, 12:47 Uhr (v1.7-pin-handshake)</div>
+    <div class="build-badge">Build: 22.10.2026, 13:30 Uhr (v2.0-relay-debug)</div>
     <h1>Kamera Live-Stream</h1>
     
     <div id="error-display" class="error-box hidden"></div>
@@ -121,26 +135,31 @@
         <button onclick="startAsViewerMode()">2. Als Zuschauer empfangen</button>
     </div>
 
-    <!-- ZUSCHAUER: NUR ZAHL EINGEBEN + RETURN-TASTE -->
+    <!-- ZUSCHAUER: NUR ZAHL EINGEBEN + ENTER -->
     <div id="viewer-input-zone" class="hidden">
         <div class="info-box">
             <p style="margin-top: 0;">Geben Sie die 6-stellige Kamera-Zahl ein:</p>
             <input type="tel" id="target-pin" placeholder="123456" maxlength="6" 
                    onkeydown="if(event.key === 'Enter') connectToBroadcaster()" autofocus><br>
-            <button onclick="connectToBroadcaster()">Verbinden (oder Enter)</button>
+            <button onclick="connectToBroadcaster()">Verbinden (Enter)</button>
         </div>
     </div>
 
-    <!-- SENDER: ZEIGT DIE 6-STELLIGE PIN AN -->
+    <!-- SENDER: ANZEIGE DER PIN -->
     <div id="share-zone" class="info-box hidden">
         <strong>Deine Kamera-Zahl:</strong><br>
-        <span id="my-pin-display" style="font-size: 32px; color: #60a5fa; font-family: monospace; font-weight: bold; letter-spacing: 3px;">...</span>
-        <p style="font-size: 13px; margin: 8px 0 0 0; color: #93c5fd;">Tippen Sie nur diese Zahl auf dem Zuschauer-Gerät ein.</p>
+        <span id="my-pin-display" style="font-size: 34px; color: #60a5fa; font-family: monospace; font-weight: bold; letter-spacing: 4px;">...</span>
+        <p style="font-size: 13px; margin: 8px 0 0 0; color: #93c5fd;">Tippen Sie nur diese Zahl auf dem PC ein.</p>
     </div>
 
     <button id="manual-play-btn" class="play-btn hidden" onclick="startManualPlayback()">▶ Video abspielen</button>
 
     <video id="video-element" autoplay playsinline muted></video>
+
+    <!-- LIVE ICE-MONITOR -->
+    <div class="log-box" id="ice-log">
+        [SYSTEM] Debug-Monitor bereit.<br>
+    </div>
 
     <script>
         let peer = null;
@@ -156,10 +175,18 @@
         const myPinDisplay = document.getElementById('my-pin-display');
         const viewerInputZone = document.getElementById('viewer-input-zone');
         const manualPlayBtn = document.getElementById('manual-play-btn');
+        const logBox = document.getElementById('ice-log');
+
+        function log(msg) {
+            const time = new Date().toTimeString().split(' ')[0];
+            logBox.innerHTML += `[${time}] ${msg}<br>`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
 
         function showError(title, message) {
             errorDisplay.classList.remove('hidden');
             errorDisplay.innerHTML += `<strong>[${title}]</strong> ${message}<br>`;
+            log(`<span style="color:#ff6666;">FEHLER [${title}]: ${message}</span>`);
         }
 
         function setDiagnostics(iceState, connState) {
@@ -170,95 +197,94 @@
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
+                    log("Display-Sperre deaktiviert (WakeLock aktiv).");
                 }
             } catch (err) {}
         }
 
-        // ICE-Konfiguration: STUN + Metered TURN + OpenRelay Fallback
+        const iceServerConfig = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:relay.metered.ca:80' },
+            
+            // Metered Relay (Ihre Credentials)
+            {
+                urls: 'turn:relay.metered.ca:80',
+                username: 'c2654b8cb04aab3be68260cf',
+                credential: 'tAEDEsB6ODAINzJ5'
+            },
+            {
+                urls: 'turn:relay.metered.ca:443',
+                username: 'c2654b8cb04aab3be68260cf',
+                credential: 'tAEDEsB6ODAINzJ5'
+            },
+            {
+                urls: 'turn:relay.metered.ca:443?transport=tcp',
+                username: 'c2654b8cb04aab3be68260cf',
+                credential: 'tAEDEsB6ODAINzJ5'
+            },
+            {
+                urls: 'turns:relay.metered.ca:443?transport=tcp',
+                username: 'c2654b8cb04aab3be68260cf',
+                credential: 'tAEDEsB6ODAINzJ5'
+            }
+        ];
+
         function createPeerInstance(peerId) {
             const p = new Peer(peerId, {
                 debug: 1,
                 config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:relay.metered.ca:80' },
-                        
-                        // Metered Cluster 1 (UDP & TCP)
-                        {
-                            urls: 'turn:relay.metered.ca:80',
-                            username: 'c2654b8cb04aab3be68260cf',
-                            credential: 'tAEDEsB6ODAINzJ5'
-                        },
-                        {
-                            urls: 'turn:relay.metered.ca:443',
-                            username: 'c2654b8cb04aab3be68260cf',
-                            credential: 'tAEDEsB6ODAINzJ5'
-                        },
-                        {
-                            urls: 'turn:relay.metered.ca:443?transport=tcp',
-                            username: 'c2654b8cb04aab3be68260cf',
-                            credential: 'tAEDEsB6ODAINzJ5'
-                        },
-                        // Metered Cluster 2 (Standard)
-                        {
-                            urls: 'turn:standard.relay.metered.ca:80',
-                            username: 'c2654b8cb04aab3be68260cf',
-                            credential: 'tAEDEsB6ODAINzJ5'
-                        },
-                        {
-                            urls: 'turn:standard.relay.metered.ca:443?transport=tcp',
-                            username: 'c2654b8cb04aab3be68260cf',
-                            credential: 'tAEDEsB6ODAINzJ5'
-                        },
-                        // Ausfallsicheres OpenRelay
-                        {
-                            urls: 'turn:openrelay.metered.ca:80',
-                            username: 'openrelayproject',
-                            credential: 'openrelayproject'
-                        },
-                        {
-                            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-                            username: 'openrelayproject',
-                            credential: 'openrelayproject'
-                        }
-                    ],
-                    iceCandidatePoolSize: 10
+                    iceServers: iceServerConfig,
+                    iceCandidatePoolSize: 6
                 }
             });
 
             p.on('disconnected', () => {
-                statusText.innerText = "Signal getrennt. Reconnecte...";
+                log("Peer-Signal unterbrochen. Reconnecte...");
                 p.reconnect();
             });
 
             p.on('error', (err) => {
                 showError("Netzwerk", `${err.type}: ${err.message}`);
-                if (err.type === 'peer-unavailable') {
-                    statusText.innerText = "Kamera-Zahl nicht online. Läuft die Kamera?";
-                }
             });
 
             return p;
         }
 
-        function monitorConnection(pc, role) {
+        function attachIceDiagnostics(pc, role) {
             if (!pc) return;
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    const c = event.candidate;
+                    log(`Kandidat gefunden: <strong>${c.type}</strong> (${c.protocol}) ${c.address || ''}`);
+                } else {
+                    log("Kandidatensuche abgeschlossen.");
+                }
+            };
+
+            pc.onicecandidateerror = (event) => {
+                log(`<span style="color:#ffaa00;">ICE-Fehler auf ${event.url}: [${event.errorCode}] ${event.errorText}</span>`);
+            };
+
             const update = () => {
                 setDiagnostics(pc.iceConnectionState, pc.connectionState);
+                log(`Zustand: ICE=${pc.iceConnectionState} | Conn=${pc.connectionState}`);
+                
                 if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
                     statusText.innerText = role === 'broadcaster' 
                         ? "Zuschauer verbunden! Übertragung läuft." 
                         : "Verbindung stabil! Live-Bild aktiv.";
                 } else if (pc.iceConnectionState === 'failed') {
-                    statusText.innerText = "ICE fehlgeschlagen. Versuche Neuverbindung...";
+                    statusText.innerText = "ICE fehlgeschlagen. Bitte Log unten prüfen.";
                 }
             };
+
             pc.oniceconnectionstatechange = update;
             pc.onconnectionstatechange = update;
             update();
         }
 
-        // --- 1. SENDER (HANDY / KAMERA) ---
+        // --- 1. SENDER (KAMERA) ---
         function startAsBroadcaster() {
             roleSelection.classList.add('hidden');
             statusText.innerText = "Kamera wird gestartet...";
@@ -273,10 +299,9 @@
                 videoElement.muted = true;
                 videoElement.play().catch(() => {});
 
-                statusText.innerText = "Verbinde mit Vermittlungsserver...";
+                statusText.innerText = "Verbinde mit Server...";
                 requestWakeLock();
 
-                // 6-stellige Zahl generieren
                 const randomPin = Math.floor(100000 + Math.random() * 900000).toString();
                 peer = createPeerInstance('cam-' + randomPin);
 
@@ -284,37 +309,41 @@
                     statusText.innerText = "Kamera bereit. Warte auf Zuschauer...";
                     shareZone.classList.remove('hidden');
                     myPinDisplay.innerText = randomPin;
+                    log(`Kamera registriert mit PIN: ${randomPin}`);
                 });
 
-                // Zuschauer meldet sich an -> Kamera ruft Zuschauer direkt mit dem Videostream an
+                // Zuschauer meldet sich per Datenkanal an
                 peer.on('connection', (conn) => {
-                    statusText.innerText = "Zuschauer angemeldet! Sende Videostream...";
-                    
+                    log(`Zuschauer-Signal empfangen von ${conn.peer}. Starte Video-Call...`);
+                    statusText.innerText = "Zuschauer meldet sich. Sende Video...";
+
                     const call = peer.call(conn.peer, localStream);
+                    
                     if (call) {
                         const checkPC = setInterval(() => {
                             const pc = call.peerConnection || call._peerConnection;
                             if (pc) {
                                 clearInterval(checkPC);
-                                monitorConnection(pc, 'broadcaster');
+                                attachIceDiagnostics(pc, 'broadcaster');
                             }
                         }, 50);
                     }
+
+                    // Handshake-Kanal schließen, damit keine NAT-Ressourcen blockiert werden
+                    setTimeout(() => { conn.close(); }, 3000);
                 });
             })
             .catch((err) => {
-                showError("Kamera-Fehler", err.message);
+                showError("Kamera", err.message);
             });
         }
 
-        // --- 2. EMPFÄNGER (PC / ZUSCHAUER) ---
+        // --- 2. EMPFÄNGER (PC) ---
         function startAsViewerMode() {
             roleSelection.classList.add('hidden');
             viewerInputZone.classList.remove('hidden');
             statusText.innerText = "Bitte Zahl eingeben";
-            setTimeout(() => {
-                document.getElementById('target-pin').focus();
-            }, 100);
+            setTimeout(() => { document.getElementById('target-pin').focus(); }, 150);
         }
 
         function triggerPlayback() {
@@ -325,10 +354,12 @@
                 .then(() => {
                     manualPlayBtn.classList.add('hidden');
                     statusText.innerText = `Live-Stream läuft (${videoElement.videoWidth}x${videoElement.videoHeight})`;
+                    log("Video-Renderer erfolgreich gestartet.");
                 })
                 .catch(() => {
                     manualPlayBtn.classList.remove('hidden');
-                    statusText.innerText = "Klick erforderlich: Bitte 'Video abspielen' drücken!";
+                    statusText.innerText = "Autoplay blockiert: Bitte 'Video abspielen' klicken!";
+                    log("Autoplay blockiert - Button eingeblendet.");
                 });
         }
 
@@ -341,44 +372,46 @@
 
         function connectToBroadcaster() {
             let inputPin = document.getElementById('target-pin').value.trim();
-            // Bereinigung: Nur Ziffern zulassen, Präfixe wie 'cam-' tolerieren
             inputPin = inputPin.replace(/[^0-9]/g, '');
 
-            if (inputPin.length < 4) {
+            if (inputPin.length < 5) {
                 alert("Bitte die vollständige Zahl eingeben!");
                 return;
             }
 
             const targetPeerId = 'cam-' + inputPin;
-
             viewerInputZone.classList.add('hidden');
             statusText.innerText = `Kontaktiere Kamera ${inputPin}...`;
+            log(`Verbindungsversuch zu Kamera-ID: ${targetPeerId}`);
 
-            // Eigene temporäre ID für den Zuschauer
             const viewerId = 'viewer-' + Math.floor(100000 + Math.random() * 900000);
             peer = createPeerInstance(viewerId);
 
             peer.on('open', () => {
-                // Auf den eingehenden Videoanruf der Kamera warten
+                log(`Eigene Zuschauer-ID: ${viewerId}`);
+
                 peer.on('call', (call) => {
-                    statusText.innerText = "Kamera sendet Stream. Verbinde...";
-                    call.answer(); // Ohne eigenen Stream antworten
+                    log("Video-Anruf von Kamera erhalten. Antworte...");
+                    call.answer();
 
                     const checkPC = setInterval(() => {
                         const pc = call.peerConnection || call._peerConnection;
                         if (pc) {
                             clearInterval(checkPC);
-                            monitorConnection(pc, 'viewer');
+                            attachIceDiagnostics(pc, 'viewer');
                         }
                     }, 50);
 
                     call.on('stream', (remoteStream) => {
-                        statusText.innerText = "Videodaten empfangen! Starte Renderer...";
+                        log("Videostream-Signal empfangen.");
                         videoElement.srcObject = remoteStream;
 
                         const track = remoteStream.getVideoTracks()[0];
                         if (track) {
-                            track.onunmute = triggerPlayback;
+                            track.onunmute = () => {
+                                log("Video-Track ist aktiv (unmuted).");
+                                triggerPlayback();
+                            };
                         }
 
                         videoElement.onloadedmetadata = triggerPlayback;
@@ -386,19 +419,18 @@
                     });
 
                     call.on('error', (err) => {
-                        showError("Call-Fehler", err.message);
+                        showError("Stream-Fehler", err.message);
                     });
                 });
 
-                // Handshake an Kamera senden: "Ich bin da, bitte sende mir das Video"
+                // Handshake absenden
                 const conn = peer.connect(targetPeerId, { reliable: true });
-
                 conn.on('open', () => {
-                    statusText.innerText = "Kamera erreicht! Warte auf Videostart...";
+                    log("Handshake an Kamera erfolgreich übermittelt.");
+                    statusText.innerText = "Kamera erreicht! Warte auf Video...";
                 });
-
                 conn.on('error', (err) => {
-                    showError("Verbindung", err.message);
+                    showError("Handshake", err.message);
                 });
             });
         }
