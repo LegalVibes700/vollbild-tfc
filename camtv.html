@@ -18,13 +18,17 @@
         }
         video { 
             width: 100%; 
-            max-width: 540px; 
+            max-width: 640px; 
+            min-height: 260px;
+            aspect-ratio: 16 / 9;
             background: #000; 
+            border: 2px solid #333;
             border-radius: 8px; 
             margin-top: 15px; 
             display: block; 
             margin-left: auto; 
             margin-right: auto; 
+            object-fit: contain;
         }
         button { 
             background: #007bff; 
@@ -40,6 +44,17 @@
             font-weight: 600; 
         }
         button:hover { background: #0056b3; }
+        .play-btn {
+            background: #10b981;
+            font-size: 18px;
+            animation: pulse 1.5s infinite;
+        }
+        .play-btn:hover { background: #059669; }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+            100% { transform: scale(1); }
+        }
         input[type="text"] {
             padding: 12px;
             width: 80%;
@@ -105,6 +120,9 @@
         <p style="font-size: 12px; margin-top: 8px; color: #93c5fd;">Lassen Sie dieses Fenster geöffnet und das Display an.</p>
     </div>
 
+    <!-- Manueller Startbutton, falls Autoplay blockiert wird -->
+    <button id="manual-play-btn" class="play-btn hidden" onclick="startManualPlayback()">▶ Video starten</button>
+
     <video id="video-element" autoplay playsinline muted></video>
 
     <script>
@@ -120,20 +138,20 @@
         const shareZone = document.getElementById('share-zone');
         const myIdDisplay = document.getElementById('my-id-display');
         const viewerInputZone = document.getElementById('viewer-input-zone');
+        const manualPlayBtn = document.getElementById('manual-play-btn');
 
         function showError(title, message) {
             errorDisplay.classList.remove('hidden');
             errorDisplay.innerHTML += `<strong>[${title}]</strong> ${message}<br>`;
         }
 
-        // Verhindert das Abschalten des Handy-Displays (Sender)
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
                 }
             } catch (err) {
-                console.log("WakeLock nicht unterstützt oder verweigert");
+                console.log("WakeLock inaktiv");
             }
         }
 
@@ -166,20 +184,18 @@
                 }
             });
 
-            // Auto-Reconnect, falls PeerJS die Serververbindung trennt
             p.on('disconnected', () => {
-                statusText.innerText = "Verbindung unterbrochen. Reconnecte...";
+                statusText.innerText = "Verbindung getrennt. Reconnecte...";
                 p.reconnect();
             });
 
             p.on('error', (err) => {
                 showError("Netzwerk (" + err.type + ")", err.message);
                 if (err.type === 'peer-unavailable') {
-                    statusText.innerText = "Kamera-ID nicht online. Kamera aktiv?";
+                    statusText.innerText = "Kamera-ID nicht online.";
                 }
             });
 
-            // Keepalive-Ping alle 15 Sekunden
             clearInterval(heartbeatTimer);
             heartbeatTimer = setInterval(() => {
                 if (p && !p.destroyed && p.socket && p.socket._open) {
@@ -190,15 +206,25 @@
             return p;
         }
 
-        // --- 1. SENDER (KAMERA) ---
+        // --- 1. SENDER (HANDY) ---
         function startAsBroadcaster() {
             roleSelection.classList.add('hidden');
             statusText.innerText = "Kamera wird gestartet...";
 
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false })
+            navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    facingMode: "environment",
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }, 
+                audio: false 
+            })
             .then((stream) => {
                 localStream = stream;
                 videoElement.srcObject = stream;
+                videoElement.muted = true;
+                videoElement.play().catch(() => {});
+
                 statusText.innerText = "Verbinde mit Signal-Server...";
 
                 requestWakeLock();
@@ -210,20 +236,14 @@
                     myIdDisplay.innerText = id;
                 });
 
-                // Ruft an, sobald sich ein Zuschauer per Datenkanal meldet
+                // Handshake vom Zuschauer empfangen -> Call mit Video starten
                 peer.on('connection', (conn) => {
-                    statusText.innerText = "Zuschauer gefunden! Starte Übertragung...";
-                    const call = peer.call(conn.peer, localStream);
-                    
-                    conn.on('close', () => {
-                        statusText.innerText = "Zuschauer getrennt. Bereit für Neuverbindung.";
-                    });
+                    statusText.innerText = "Zuschauer verbunden! Sende Videostream...";
+                    peer.call(conn.peer, localStream);
                 });
 
-                // Fallback für Direktaufrufe
                 peer.on('call', (call) => {
                     call.answer(localStream);
-                    statusText.innerText = "Live-Bild wird übertragen!";
                 });
             })
             .catch((err) => {
@@ -231,11 +251,37 @@
             });
         }
 
-        // --- 2. EMPFÄNGER (ZUSCHAUER) ---
+        // --- 2. EMPFÄNGER (PC) ---
         function startAsViewerMode() {
             roleSelection.classList.add('hidden');
             viewerInputZone.classList.remove('hidden');
             statusText.innerText = "Bitte ID eingeben";
+        }
+
+        function playStreamSafely() {
+            videoElement.muted = true;
+            videoElement.playsInline = true;
+            
+            const promise = videoElement.play();
+            if (promise !== undefined) {
+                promise.then(() => {
+                    manualPlayBtn.classList.add('hidden');
+                    statusText.innerText = `Live-Stream läuft (${videoElement.videoWidth}x${videoElement.videoHeight})`;
+                }).catch((err) => {
+                    // Browser verlangt Nutzerinteraktion
+                    manualPlayBtn.classList.remove('hidden');
+                    statusText.innerText = "Klick erforderlich: Bitte 'Video starten' drücken!";
+                });
+            }
+        }
+
+        function startManualPlayback() {
+            videoElement.play().then(() => {
+                manualPlayBtn.classList.add('hidden');
+                statusText.innerText = `Live-Stream läuft (${videoElement.videoWidth}x${videoElement.videoHeight})`;
+            }).catch((err) => {
+                showError("Wiedergabefehler", err.message);
+            });
         }
 
         function connectToBroadcaster() {
@@ -253,15 +299,24 @@
             peer.on('open', () => {
                 statusText.innerText = `Suche Kamera '${targetId}'...`;
 
-                // Eingehenden Stream empfangen
                 peer.on('call', (call) => {
-                    statusText.innerText = "Signal empfangen. Lade Stream...";
+                    statusText.innerText = "Signal empfangen. Binde Videobild an...";
                     call.answer();
 
                     call.on('stream', (remoteStream) => {
-                        statusText.innerText = "Live-Stream aktiv!";
                         videoElement.srcObject = remoteStream;
-                        videoElement.play().catch(() => {});
+
+                        // Sobald die ersten Videodaten decodiert sind
+                        videoElement.onloadedmetadata = () => {
+                            playStreamSafely();
+                        };
+
+                        // Fallback falls onloadedmetadata verzögert feuert
+                        setTimeout(() => {
+                            if (videoElement.paused) {
+                                playStreamSafely();
+                            }
+                        }, 800);
                     });
 
                     call.on('error', (err) => {
@@ -269,22 +324,14 @@
                     });
                 });
 
-                // Signal an die Kamera schicken
+                // Handshake an Handy
                 const conn = peer.connect(targetId, { reliable: true });
 
-                const timeout = setTimeout(() => {
-                    if (statusText.innerText.includes("Suche Kamera")) {
-                        showError("Timeout", "Kamera antwortet nicht. Ist das Kamera-Handy aktiv und die ID exakt getippt?");
-                    }
-                }, 12000);
-
                 conn.on('open', () => {
-                    clearTimeout(timeout);
-                    statusText.innerText = "Kamera kontaktiert! Stream startet gleich...";
+                    statusText.innerText = "Kamera kontaktiert! Stream wird aufgebaut...";
                 });
 
                 conn.on('error', (err) => {
-                    clearTimeout(timeout);
                     showError("Verbindung", err.message);
                 });
             });
