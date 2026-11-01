@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Vollbild Kamera mit Live-Spielstand</title>
+  
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #000000;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Startdialog */
+    #startupOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+      background: rgba(10, 10, 10, 0.95);
+      overflow-y: auto;
+    }
+
+    .startup-card {
+      max-width: 440px;
+      width: 100%;
+      background: #171717;
+      border: 1px solid #2e2e2e;
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+    }
+
+    .startup-card > * {
+      margin-bottom: 12px;
+    }
+    .startup-card > *:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Live-Score-Overlay */
+    .score-card {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 30;
+      background: rgba(0, 0, 0, 0.75) !important;
+      border: 1px solid rgba(255, 255, 255, 0.22) !important;
+      border-radius: 18px;
+      padding: 12px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6);
+      transition: width 0.2s ease, transform 0.2s ease;
+      min-width: 0 !important;
+      max-width: 98vw !important;
+      overflow: hidden !important;
+      pointer-events: auto;
+    }
+
+    /* Konfigurationsmenü */
+    .controls-menu {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      z-index: 40;
+      width: 92%;
+      max-width: 480px;
+      background: rgba(15, 15, 15, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 20px;
+      padding: 16px;
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.8);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .controls-menu > * {
+      margin-bottom: 12px;
+    }
+    .controls-menu > *:last-child {
+      margin-bottom: 0;
+    }
+
+    .controls-menu.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Scrollleiste für Satz-Details */
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= START- & VORBEREITUNGSDIALOG ================= -->
+  <div id="startupOverlay">
+    <div class="startup-card">
+      
+      <div style="display: flex; align-items: center; margin-bottom: 14px;">
+        <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(239,68,68,0.2); color: #ef4444; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; flex-shrink: 0; margin-right: 10px;">
+          ⚽
+        </div>
+        <div>
+          <h1 style="font-size: 16px; font-weight: 900; line-height: 1.2;">Kicker-Kamera mit Spielstand</h1>
+          <p style="font-size: 11px; color: #a3a3a3;">Kölner Kickerliga Live-Overlay</p>
+        </div>
+      </div>
+
+      <!-- HAUPTSPIEL EINGABE -->
+      <div>
+        <label for="inputMatchUrl1" style="display: block; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #d4d4d4; margin-bottom: 6px;">
+          Spielbericht-URL oder Match-ID
+        </label>
+        <input 
+          id="inputMatchUrl1" 
+          type="text" 
+          style="width: 100%; background: #262626; border: 1px solid #404040; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: #ffffff; outline: none; font-family: monospace;"
+          placeholder="z. B. 9098 oder URL"
+          autocomplete="off"
+        />
+      </div>
+
+      <!-- STATUS-ANZEIGE -->
+      <div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px 12px; font-size: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <span style="color: #a3a3a3; font-size: 11px;">Erkannte Spiel-ID: <strong id="detectedId1" style="color: #34d399; font-family: monospace;">#9098</strong></span>
+          <span id="detectionSpinner" style="color: #34d399; font-weight: 800; font-size: 10px;">Bereit</span>
+        </div>
+        <div id="detectionResultText" style="color: #e5e5e5; font-size: 11px;">
+          Bereit zum Starten.
+        </div>
+      </div>
+
+      <div id="errorBox" style="display: none; background: rgba(153, 27, 27, 0.6); border: 1px solid #b91c1c; border-radius: 10px; padding: 10px 12px; font-size: 11px; color: #fca5a5;">
+        <strong style="display: block; color: #f87171; margin-bottom: 3px;">⚠️ Fehlerhinweis:</strong>
+        <span id="errorBoxMsg"></span>
+      </div>
+
+      <button 
+        id="btnStart" 
+        type="button" 
+        onclick="startApp()"
+        style="width: 100%; background: #ffffff; color: #000000; padding: 12px 16px; border-radius: 12px; font-weight: 900; font-size: 14px; border: none; cursor: pointer;"
+      >
+        ⛶ Kamera starten
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= KAMERA-FEED ================= -->
+  <div id="gestureLayer" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 10; cursor: pointer;"></div>
+  <video id="video" autoplay playsinline muted style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; transform-origin: center; z-index: 1; background: #000;"></video>
+
+  <!-- ================= DYNAMISCHES LIVE-SPIELSTAND OVERLAY ================= -->
+  <div id="liveOverlay" class="score-card" style="width: 25vw;">
+    
+    <!-- 1. HAUPTSPIEL -->
+    <div id="sectionMatch1">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+        <span style="font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.7); display: flex; align-items: center;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: #ef4444; display: inline-block; margin-right: 5px;"></span> Live-Spiel
+        </span>
+        <span id="badgeMatch1" style="font-size: 10px; font-family: monospace; color: rgba(255,255,255,0.45); font-weight: 700;">#---</span>
+      </div>
+      
+      <!-- Teamnamen -->
+      <div id="teams1" style="font-size: 14px; font-weight: 900; line-height: 1.25; word-break: break-word;">
+        Lade Begegnung...
+      </div>
+      
+      <!-- Gesamtergebnis -->
+      <div id="spielstand1" style="font-size: 32px; font-weight: 900; line-height: 1; margin: 4px 0; letter-spacing: -1px;">
+        ---
+      </div>
+      
+      <div id="status1" style="font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.8); line-height: 1.2; margin-bottom: 8px;">
+        Initialisiere...
+      </div>
+
+      <!-- SATZ-DETAILS -->
+      <div id="setsContainer1" style="border-top: 1px solid rgba(255,255,255,0.15); padding-top: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.5);">Letzte Sätze</span>
+          <span id="setsCountBadge" style="font-size: 9px; font-family: monospace; color: rgba(255,255,255,0.4); font-weight: 700;">0 Sätze</span>
+        </div>
+        
+        <div id="setsList1" class="custom-scroll" style="max-height: 60vh; overflow-y: auto; padding-right: 2px;">
+          <div style="font-size: 11px; color: rgba(255,255,255,0.5); font-style: italic; padding: 4px 0;">Lade Satzdetails...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. PARALLELSPIEL -->
+    <div id="sectionMatch2" style="display: none; border-top: 1px solid rgba(255,255,255,0.2); margin-top: 8px; padding-top: 8px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+        <span style="font-size: 10px; font-weight: 900; text-transform: uppercase; color: #fbbf24; display: flex; align-items: center;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: #fbbf24; display: inline-block; margin-right: 5px;"></span> Parallelspiel
+        </span>
+        <span id="badgeMatch2" style="font-size: 10px; font-family: monospace; color: rgba(255,255,255,0.45); font-weight: 700;">#---</span>
+      </div>
+      
+      <div id="teams2" style="font-size: 12px; font-weight: 900; line-height: 1.25; word-break: break-word;">
+        Suche Parallelspiel...
+      </div>
+      
+      <div id="spielstand2" style="font-size: 24px; font-weight: 900; color: #fde68a; margin: 3px 0;">
+        ---
+      </div>
+      
+      <div id="status2" style="font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.8);">
+        Warte auf Daten...
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ================= KONFIGURATIONSEBENE ================= -->
+  <div id="controlsMenu" class="controls-menu">
+    
+    <div style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px;">
+      <span style="font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.5);">Kamera & Einstellungen</span>
+    </div>
+
+    <!-- 1. Kamera-Auswahl -->
+    <div>
+      <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: rgba(255,255,255,0.5); display: block; margin-bottom: 6px;">Kamera wechseln</span>
+      <table style="width: 100%; border-spacing: 6px 0; border-collapse: separate;">
+        <tr>
+          <td style="width: 50%; padding: 0;">
+            <button id="btnCameraFront" onclick="switchCamera('user')" style="width: 100%; background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 9px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer;">
+              🤳 Frontkamera
+            </button>
+          </td>
+          <td style="width: 50%; padding: 0;">
+            <button id="btnCameraBack" onclick="switchCamera('environment')" style="width: 100%; background: #ffffff; border: none; color: #000; padding: 9px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer;">
+              📸 Hauptkamera
+            </button>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- 2. Zoom-Modi -->
+    <div>
+      <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: rgba(255,255,255,0.5); display: block; margin-bottom: 6px;">Zoomstufe</span>
+      <div style="display: flex;">
+        <button class="zoom-btn" onclick="applyZoom(1)" style="flex: 1; margin: 0 2px; background: #ffffff; color: #000; border: none; padding: 7px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">1x</button>
+        <button class="zoom-btn" onclick="applyZoom(1.5)" style="flex: 1; margin: 0 2px; background: rgba(255,255,255,0.1); color: #fff; border: none; padding: 7px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">1.5x</button>
+        <button class="zoom-btn" onclick="applyZoom(2)" style="flex: 1; margin: 0 2px; background: rgba(255,255,255,0.1); color: #fff; border: none; padding: 7px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">2x</button>
+        <button class="zoom-btn" onclick="applyZoom(3)" style="flex: 1; margin: 0 2px; background: rgba(255,255,255,0.1); color: #fff; border: none; padding: 7px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">3x</button>
+      </div>
+    </div>
+
+    <!-- 3. BOX-GRÖSSE -->
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: rgba(255,255,255,0.5);">Box-Breite</span>
+        <span id="boxSizeBadge" style="font-size: 11px; font-family: monospace; font-weight: 800; color: #34d399;">25%</span>
+      </div>
+
+      <div style="display: flex;">
+        <button class="box-size-btn" onclick="setBoxSize(15)" data-size="15" style="flex: 1; margin: 0 2px; background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 8px 2px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">15%</button>
+        <button class="box-size-btn" onclick="setBoxSize(20)" data-size="20" style="flex: 1; margin: 0 2px; background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 8px 2px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">20%</button>
+        <button class="box-size-btn" onclick="setBoxSize(25)" data-size="25" style="flex: 1; margin: 0 2px; background: #ffffff; border: none; color: #000; padding: 8px 2px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">25%</button>
+        <button class="box-size-btn" onclick="setBoxSize(35)" data-size="35" style="flex: 1; margin: 0 2px; background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 8px 2px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">35%</button>
+      </div>
+    </div>
+
+    <!-- 4. Satz-Anzeige Schalter -->
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.85);">Satz-Details anzeigen</span>
+      <button id="btnToggleSets" onclick="toggleSets()" style="background: rgba(255,255,255,0.18); border: none; color: #fff; font-size: 11px; font-weight: 800; padding: 6px 10px; border-radius: 8px; cursor: pointer;">
+        Sätze: An
+      </button>
+    </div>
+
+    <!-- 5. HAUPTSPIEL WECHSELN -->
+    <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 6px;">
+      <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: rgba(255,255,255,0.5); display: block; margin-bottom: 4px;">
+        Hauptspiel ändern (URL oder ID)
+      </span>
+      <div style="display: flex;">
+        <input 
+          id="menuMatchInput1" 
+          type="text" 
+          placeholder="z. B. 9098..." 
+          style="flex: 1; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 7px 8px; font-size: 11px; color: #fff; font-family: monospace; outline: none; margin-right: 6px;"
+        />
+        <button onclick="applyMenuMatch1Action()" style="background: #fff; color: #000; border: none; padding: 7px 12px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer;">
+          OK
+        </button>
+      </div>
+    </div>
+
+    <!-- 6. PARALLELSPIEL -->
+    <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 6px;">
+      <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #fbbf24; display: block; margin-bottom: 4px;">
+        Parallelspiel beobachten
+      </span>
+      <div style="display: flex;">
+        <input 
+          id="inputMatchUrl2" 
+          type="text" 
+          placeholder="2. ID / URL..." 
+          style="flex: 1; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 7px 8px; font-size: 11px; color: #fff; font-family: monospace; outline: none; margin-right: 6px;"
+        />
+        <button onclick="applyMatch2Action()" style="background: #fbbf24; color: #000; border: none; padding: 7px 10px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer; margin-right: 4px;">
+          An
+        </button>
+        <button onclick="removeMatch2Action()" style="background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; padding: 7px 8px; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
+          Aus
+        </button>
+      </div>
+      <span id="match2StatusLabel" style="font-size: 10px; color: rgba(255,255,255,0.4); font-family: monospace; display: block; margin-top: 4px;">Kein Parallelspiel aktiv</span>
+    </div>
+
+    <button onclick="hideMenu()" style="width: 100%; background: rgba(255,255,255,0.08); border: none; color: #fff; padding: 8px; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
+      ✕ Menü schließen
+    </button>
+  </div>
+
+  <script>
+    /* ================= 0. GLOBALE FEHLERDIAGNOSE ================= */
+    window.addEventListener('error', function(e) {
+      console.error("Global JS Error:", e);
+      var eb = document.getElementById('errorBox');
+      var ebm = document.getElementById('errorBoxMsg');
+      if (eb && ebm) {
+        eb.style.display = 'block';
+        ebm.textContent = 'Script-Fehler: ' + e.message + ' (Zeile ' + e.lineno + ')';
+      }
+    });
+
+    /* ================= 1. STATUS ================= */
+    var currentMatchUrl1 = "https://spiel.kickerligakoeln.de/#/live/9098/spielbericht";
+    var currentMatchUrl2 = null;
+    var pollInterval = null;
+    var showSets = true;
+    var isStarting = false;
+    var currentFacingMode = "environment";
+    var currentZoom = 1;
+    var currentBoxSizePercent = 25;
+    var activeStream = null;
+    var menuTimeout = null;
+    var lastCachedSaetze = null;
+
+    var startupOverlay = document.getElementById('startupOverlay');
+    var inputMatchUrl1 = document.getElementById('inputMatchUrl1');
+    var detectedId1 = document.getElementById('detectedId1');
+    var detectionSpinner = document.getElementById('detectionSpinner');
+    var detectionResultText = document.getElementById('detectionResultText');
+    var errorBox = document.getElementById('errorBox');
+    var errorBoxMsg = document.getElementById('errorBoxMsg');
+    var btnStart = document.getElementById('btnStart');
+
+    var video = document.getElementById('video');
+    var gestureLayer = document.getElementById('gestureLayer');
+    var liveOverlay = document.getElementById('liveOverlay');
+
+    var badgeMatch1 = document.getElementById('badgeMatch1');
+    var teams1Display = document.getElementById('teams1');
+    var score1Display = document.getElementById('spielstand1');
+    var status1Display = document.getElementById('status1');
+    var setsContainer1 = document.getElementById('setsContainer1');
+    var setsList1 = document.getElementById('setsList1');
+    var setsCountBadge = document.getElementById('setsCountBadge');
+
+    var sectionMatch2 = document.getElementById('sectionMatch2');
+    var badgeMatch2 = document.getElementById('badgeMatch2');
+    var teams2Display = document.getElementById('teams2');
+    var score2Display = document.getElementById('spielstand2');
+    var status2Display = document.getElementById('status2');
+
+    var controlsMenu = document.getElementById('controlsMenu');
+    var boxSizeBadge = document.getElementById('boxSizeBadge');
+    var btnToggleSets = document.getElementById('btnToggleSets');
+    var menuMatchInput1 = document.getElementById('menuMatchInput1');
+    var inputMatchUrl2 = document.getElementById('inputMatchUrl2');
+    var match2StatusLabel = document.getElementById('match2StatusLabel');
+
+    /* ================= 2. DYNAMISCHE BOX-GRÖSSE ================= */
+    function setBoxSize(percent) {
+      var valid = [15, 20, 25, 35];
+      var p = parseInt(percent, 10);
+      if (valid.indexOf(p) === -1) p = 25;
+      currentBoxSizePercent = p;
+
+      liveOverlay.style.setProperty('width', p + 'vw', 'important');
+      liveOverlay.style.setProperty('min-width', '0px', 'important');
+      if (boxSizeBadge) boxSizeBadge.textContent = p + '%';
+
+      var isSmall = p <= 20;
+      if (teams1Display) teams1Display.style.fontSize = isSmall ? '12px' : '14px';
+      if (score1Display) score1Display.style.fontSize = isSmall ? '24px' : '32px';
+      liveOverlay.style.padding = isSmall ? '8px' : '12px';
+
+      try { localStorage.setItem('kkl_box_size', p); } catch(e) {}
+
+      var buttons = document.querySelectorAll('.box-size-btn');
+      for (var i = 0; i < buttons.length; i++) {
+        var btn = buttons[i];
+        if (parseInt(btn.getAttribute('data-size'), 10) === p) {
+          btn.style.background = '#ffffff';
+          btn.style.color = '#000000';
+        } else {
+          btn.style.background = 'rgba(255, 255, 255, 0.1)';
+          btn.style.color = '#ffffff';
+        }
+      }
+
+      if (lastCachedSaetze) {
+        renderSatzListe(lastCachedSaetze);
+      }
+    }
+
+    /* ================= 3. ID- & API-URL ERMITTLUNG ================= */
+    function extrahiereMatchId(input) {
+      if (!input) return null;
+      var str = String(input).trim();
+      var urlMatch = str.match(/\/(\d+)(?:\/|$|\?|#)/);
+      if (urlMatch) return urlMatch[1];
+      var idMatch = str.match(/\b(\d{3,6})\b/);
+      if (idMatch) return idMatch[1];
+      var fallback = str.match(/(\d+)/);
+      return fallback ? fallback[1] : null;
+    }
+
+    function resolveApiUrl(input) {
+      if (!input) return null;
+      var id = extrahiereMatchId(input);
+      if (!id) return null;
+      return 'https://spiel.kickerligakoeln.de/api/v2/scoresheet/' + id;
+    }
+
+    /* ================= 4. SPIELER- & SATZPARSER ================= */
+    function getPlayers(game, side) {
+      if (!game) return "-";
+      if (game.player) {
+        var pA = game.player[side + '_a'];
+        var pB = game.player[side + '_b'];
+        var names = [pA, pB].filter(function(name) {
+          return name && typeof name === "string" && name.trim() !== "";
+        });
+        if (names.length > 0) return names.join(" & ");
+      }
+      var directList = game['players_' + side] || game[side + '_players'];
+      if (Array.isArray(directList) && directList.length > 0) {
+        return directList.map(function(p) {
+          return (typeof p === "string" ? p : (p.name || p.fullname || ""));
+        }).filter(Boolean).join(" & ");
+      }
+      return side === "home" ? "Heim" : "Gast";
+    }
+
+    function formatScore(game) {
+      if (!game) return "- : -";
+      var separator = "&nbsp;&nbsp;&nbsp;";
+      if (Array.isArray(game.score) && game.score.length > 0) {
+        var sets = game.score
+          .filter(function(s) { return s && (s.home !== undefined || s.guest !== undefined); })
+          .map(function(s) {
+            var h = (s.home !== undefined && s.home !== null) ? s.home : 0;
+            var g = (s.guest !== undefined && s.guest !== null) ? s.guest : 0;
+            return h + ':' + g;
+          });
+        if (sets.length > 0) return sets.join(separator);
+      }
+      if (typeof game.result === "string" && game.result.trim()) {
+        return game.result.trim().replace(/[,/]\s*/g, separator);
+      }
+      if (typeof game.score === "string" && game.score.trim()) {
+        return game.score.trim().replace(/[,/]\s*/g, separator);
+      }
+      return "- : -";
+    }
+
+    function extractMatchObject(data) {
+      if (!data) return null;
+      if (data.result) {
+        if (Array.isArray(data.result)) {
+          var first = data.result[0];
+          if (first && first.data && Array.isArray(first.data)) return first.data[0];
+          return first;
+        }
+        if (data.result.data && Array.isArray(data.result.data)) return data.result.data[0];
+        return data.result;
+      }
+      if (data.data) {
+        return Array.isArray(data.data) ? data.data[0] : data.data;
+      }
+      return data;
+    }
+
+    function holeMatchDaten(inputUrl) {
+      var apiUrl = resolveApiUrl(inputUrl);
+      if (!apiUrl) return Promise.resolve(null);
+
+      return fetch(apiUrl)
+        .then(function(response) {
+          if (!response.ok) return null;
+          return response.json();
+        })
+        .then(function(data) {
+          if (!data) return null;
+          var match = extractMatchObject(data);
+          if (!match) return null;
+
+          var th = match.team_home || {};
+          var tg = match.team_guest || {};
+
+          var homeName = th.name || "Heim";
+          var guestName = tg.name || "Gast";
+          var homeSets = (th.set !== undefined && th.set !== null) ? th.set : 0;
+          var guestSets = (tg.set !== undefined && tg.set !== null) ? tg.set : 0;
+          var homeGoals = (th.goals !== undefined && th.goals !== null) ? th.goals : 0;
+          var guestGoals = (tg.goals !== undefined && tg.goals !== null) ? tg.goals : 0;
+          var state = match.state || "LIVE";
+
+          var rawGames = match.games || match.matches || match.submatches || [];
+          if (rawGames && typeof rawGames === 'object' && !Array.isArray(rawGames)) {
+            var arr = [];
+            for (var key in rawGames) {
+              if (Object.prototype.hasOwnProperty.call(rawGames, key)) {
+                arr.push(rawGames[key]);
+              }
+            }
+            rawGames = arr;
+          }
+
+          var saetze = Array.isArray(rawGames) ? rawGames.map(function(game, index) {
+            var gameNum = index + 1;
+            return {
+              label: 'Spiel ' + gameNum,
+              home: getPlayers(game, "home"),
+              guest: getPlayers(game, "guest"),
+              score: formatScore(game)
+            };
+          }) : [];
+
+          return {
+            home: homeName,
+            guest: guestName,
+            setHome: homeSets,
+            setGuest: guestSets,
+            goalsHome: homeGoals,
+            goalsGuest: guestGoals,
+            state: state,
+            saetze: saetze
+          };
+        })
+        .catch(function(err) {
+          console.error("Fehler beim Abruf:", err);
+          return null;
+        });
+    }
+
+    /* ================= 5. EINGABEPRÜFUNG & RENDERING ================= */
+    function onInput1Change() {
+      var raw = inputMatchUrl1.value.trim();
+      try { localStorage.setItem('kkl_match_url_1', raw); } catch(e) {}
+
+      var id = extrahiereMatchId(raw);
+      if (id) {
+        currentMatchUrl1 = raw;
+        detectedId1.textContent = '#' + id;
+        detectedId1.style.color = "#34d399";
+        detectionSpinner.textContent = "✓ Bereit";
+        detectionSpinner.style.color = "#34d399";
+        detectionResultText.innerHTML = '<span style="color: #6ee7b7; font-weight: 700;">Match #' + id + ' erkannt.</span>';
+      } else {
+        detectedId1.textContent = "---";
+        detectedId1.style.color = "#737373";
+        detectionSpinner.textContent = "Ungültig";
+        detectionSpinner.style.color = "#f87171";
+        detectionResultText.innerHTML = '<span style="color: #a3a3a3;">Keine gültige Spiel-ID gefunden.</span>';
+      }
+    }
+
+    inputMatchUrl1.addEventListener('input', onInput1Change);
+    inputMatchUrl1.addEventListener('paste', function() { setTimeout(onInput1Change, 10); });
+    inputMatchUrl1.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        startApp();
+      }
+    });
+
+    /* ================= 6. SÄTZE RENDERN ================= */
+    function renderSatzListe(saetze) {
+      lastCachedSaetze = saetze;
+
+      if (!showSets) {
+        setsContainer1.style.display = 'none';
+        return;
+      }
+      setsContainer1.style.display = 'block';
+
+      var alleAktiven = (saetze || []).filter(function(s) {
+        if (!s || !s.score) return false;
+        var sc = s.score.replace(/&nbsp;|\s+/g, '');
+        if (sc === '-:-' || sc === '-' || sc === '0:0' || sc === '0:00:0' || sc === '') return false;
+        return /[1-9]/.test(sc);
+      });
+
+      if (alleAktiven.length === 0) {
+        setsCountBadge.textContent = "0 Sätze";
+        setsList1.innerHTML = '<div style="font-size: 11px; color: rgba(255,255,255,0.5); font-style: italic; padding: 6px 0;">Noch keine Sätze mit Ergebnis.</div>';
+        return;
+      }
+
+      var letzteVier = alleAktiven.slice(-4);
+      setsCountBadge.textContent = alleAktiven.length + ' gesamt';
+
+      var isSmall = currentBoxSizePercent <= 20;
+      var playerFontSize = isSmall ? '10px' : '11px';
+      var scoreFontSize = isSmall ? '12px' : '14px';
+      var rowPadding = isSmall ? '4px 6px' : '6px 8px';
+
+      var html = '';
+      for (var i = 0; i < letzteVier.length; i++) {
+        var s = letzteVier[i];
+        html += '<div style="padding: ' + rowPadding + '; border-radius: 8px; background: rgba(255,255,255,0.08); margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(255,255,255,0.09);">' +
+          '<div style="flex: 1; min-width: 0; overflow: hidden; margin-right: 6px;">' +
+            '<div style="font-size: ' + playerFontSize + '; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + s.home + '</div>' +
+            '<div style="font-size: ' + playerFontSize + '; font-weight: 700; color: rgba(255,255,255,0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + s.guest + '</div>' +
+          '</div>' +
+          '<div style="flex-shrink: 0; font-size: ' + scoreFontSize + '; font-weight: 900; background: rgba(255,255,255,0.16); padding: 3px 6px; border-radius: 6px; font-family: monospace; color: #ffffff; white-space: nowrap;">' +
+            s.score +
+          '</div>' +
+        '</div>';
+      }
+      setsList1.innerHTML = html;
+    }
+
+    function aktualisiereAlleSpiele() {
+      if (currentMatchUrl1) {
+        var id1 = extrahiereMatchId(currentMatchUrl1) || "---";
+        badgeMatch1.textContent = '#' + id1;
+        holeMatchDaten(currentMatchUrl1).then(function(d1) {
+          if (d1) {
+            teams1Display.textContent = d1.home + ' vs. ' + d1.guest;
+            score1Display.textContent = d1.setHome + ' : ' + d1.setGuest;
+            status1Display.textContent = 'Status: ' + d1.state + ' · Tore: ' + d1.goalsHome + ':' + d1.goalsGuest;
+            renderSatzListe(d1.saetze);
+          } else {
+            status1Display.textContent = 'Lade Spiel #' + id1 + '...';
+          }
+        });
+      }
+
+      if (currentMatchUrl2) {
+        sectionMatch2.style.display = 'block';
+        var id2 = extrahiereMatchId(currentMatchUrl2) || "---";
+        badgeMatch2.textContent = '#' + id2;
+        holeMatchDaten(currentMatchUrl2).then(function(d2) {
+          if (d2) {
+            teams2Display.textContent = d2.home + ' vs. ' + d2.guest;
+            score2Display.textContent = d2.setHome + ' : ' + d2.setGuest;
+            status2Display.textContent = 'Status: ' + d2.state;
+          } else {
+            status2Display.textContent = 'Lade Spiel #' + id2 + '...';
+          }
+        });
+      } else {
+        sectionMatch2.style.display = 'none';
+      }
+    }
+
+    /* ================= 7. KAMERA-INITIALISIERUNG ================= */
+    function initKamera(facingMode) {
+      if (activeStream) {
+        try {
+          var tracks = activeStream.getTracks();
+          for (var t = 0; t < tracks.length; t++) tracks[t].stop();
+        } catch(e) {}
+        activeStream = null;
+      }
+
+      currentFacingMode = facingMode;
+
+      // iPhone 5s / iOS 12: Constraints so unkompliziert wie möglich halten
+      var constraints = {
+        audio: false,
+        video: {
+          facingMode: { exact: facingMode }
+        }
+      };
+
+      var fallbackConstraints = {
+        audio: false,
+        video: { facingMode: facingMode }
+      };
+
+      var basicConstraints = {
+        audio: false,
+        video: true
+      };
+
+      function requestStream(c) {
+        return navigator.mediaDevices.getUserMedia(c);
+      }
+
+      return requestStream(constraints)
+        .catch(function() { return requestStream(fallbackConstraints); })
+        .catch(function() { return requestStream(basicConstraints); })
+        .then(function(stream) {
+          activeStream = stream;
+          video.srcObject = stream;
+          video.setAttribute('playsinline', '');
+          video.setAttribute('webkit-playsinline', '');
+          video.muted = true;
+          return video.play();
+        })
+        .then(function() {
+          applyZoom(currentZoom);
+        });
+    }
+
+    function switchCamera(mode) {
+      currentFacingMode = mode;
+      document.getElementById('btnCameraFront').style.background = mode === 'user' ? '#ffffff' : 'rgba(255,255,255,0.1)';
+      document.getElementById('btnCameraFront').style.color = mode === 'user' ? '#000000' : '#ffffff';
+      document.getElementById('btnCameraBack').style.background = mode === 'environment' ? '#ffffff' : 'rgba(255,255,255,0.1)';
+      document.getElementById('btnCameraBack').style.color = mode === 'environment' ? '#000000' : '#ffffff';
+      initKamera(mode).catch(function(e) {
+        console.warn("Kamerawechsel fehlgeschlagen:", e);
+      });
+    }
+
+    function applyZoom(factor) {
+      currentZoom = factor;
+      var flip = currentFacingMode === 'user' ? 'scaleX(-1)' : '';
+      video.style.transform = flip + ' scale(' + factor + ')';
+      video.style.webkitTransform = flip + ' scale(' + factor + ')';
+
+      var buttons = document.querySelectorAll('.zoom-btn');
+      for (var i = 0; i < buttons.length; i++) {
+        var btn = buttons[i];
+        if (parseFloat(btn.textContent) === factor) {
+          btn.style.background = '#ffffff';
+          btn.style.color = '#000000';
+        } else {
+          btn.style.background = 'rgba(255,255,255,0.1)';
+          btn.style.color = '#ffffff';
+        }
+      }
+    }
+
+    /* ================= 8. ZENTRALER START-ABLAUF ================= */
+    function startApp() {
+      if (isStarting) return;
+      isStarting = true;
+      errorBox.style.display = 'none';
+
+      // Kompatibilitäts-Check für alte WebKit-Implementierungen
+      var hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+      if (!hasMedia && navigator.getUserMedia) {
+        navigator.mediaDevices = navigator.mediaDevices || {};
+        navigator.mediaDevices.getUserMedia = function(c) {
+          return new Promise(function(resolve, reject) {
+            navigator.getUserMedia.call(navigator, c, resolve, reject);
+          });
+        };
+        hasMedia = true;
+      }
+
+      if (!hasMedia) {
+        isStarting = false;
+        errorBox.style.display = 'block';
+        errorBoxMsg.innerHTML = '<strong>Kamerazugriff nicht verfügbar:</strong> Die Seite muss zwingend über <strong>HTTPS</strong> geladen werden.';
+        return;
+      }
+
+      var rawInput = inputMatchUrl1.value.trim() || "https://spiel.kickerligakoeln.de/#/live/9098/spielbericht";
+      currentMatchUrl1 = rawInput;
+      var id1 = extrahiereMatchId(rawInput) || "---";
+      badgeMatch1.textContent = '#' + id1;
+
+      btnStart.textContent = "Starte Kamera...";
+      btnStart.disabled = true;
+
+      initKamera(currentFacingMode)
+        .then(function() {
+          startupOverlay.style.setProperty('display', 'none', 'important');
+          aktualisiereAlleSpiele();
+          if (pollInterval) clearInterval(pollInterval);
+          pollInterval = setInterval(aktualisiereAlleSpiele, 15000);
+        })
+        .catch(function(err) {
+          console.error("Kamerafehler:", err);
+          startupOverlay.style.display = 'flex';
+          btnStart.textContent = "⛶ Kamera starten";
+          btnStart.disabled = false;
+          errorBox.style.display = 'block';
+
+          var msg = (err && err.message) ? err.message : String(err);
+          if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+            msg = "Kamerazugriff verweigert! Bitte Berechtigung in Safari erteilen.";
+          }
+          errorBoxMsg.innerHTML = '<strong>Fehler beim Kamerastart:</strong><br>' + msg;
+        })
+        .finally(function() {
+          isStarting = false;
+        });
+    }
+
+    /* ================= 9. MENÜ-STEUERUNG ================= */
+    function showMenu() {
+      controlsMenu.classList.add('active');
+      clearTimeout(menuTimeout);
+      menuTimeout = setTimeout(hideMenu, 7000);
+    }
+
+    function hideMenu() {
+      controlsMenu.classList.remove('active');
+    }
+
+    gestureLayer.addEventListener('click', function() {
+      if (controlsMenu.classList.contains('active')) {
+        hideMenu();
+      } else {
+        showMenu();
+      }
+    });
+
+    controlsMenu.addEventListener('click', function(e) {
+      e.stopPropagation();
+      clearTimeout(menuTimeout);
+      menuTimeout = setTimeout(hideMenu, 7000);
+    });
+
+    document.addEventListener('click', function(e) {
+      if (controlsMenu.classList.contains('active')) {
+        if (!controlsMenu.contains(e.target) && e.target !== gestureLayer) {
+          hideMenu();
+        }
+      }
+    });
+
+    function toggleSets() {
+      showSets = !showSets;
+      btnToggleSets.textContent = 'Sätze: ' + (showSets ? 'An' : 'Aus');
+      btnToggleSets.style.background = showSets ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)';
+      btnToggleSets.style.color = showSets ? '#ffffff' : '#a3a3a3';
+      aktualisiereAlleSpiele();
+    }
+
+    function applyMenuMatch1Action() {
+      var val = menuMatchInput1.value.trim();
+      if (val && resolveApiUrl(val)) {
+        currentMatchUrl1 = val;
+        inputMatchUrl1.value = val;
+        try { localStorage.setItem('kkl_match_url_1', val); } catch(e) {}
+        var id = extrahiereMatchId(val) || "---";
+        badgeMatch1.textContent = '#' + id;
+        teams1Display.textContent = "Lade Spielbericht...";
+        score1Display.textContent = "---";
+        status1Display.textContent = "Verbinde...";
+        renderSatzListe([]);
+        aktualisiereAlleSpiele();
+        menuMatchInput1.value = "";
+        hideMenu();
+      } else {
+        alert("Bitte eine gültige Spiel-ID oder Adresse eingeben.");
+      }
+    }
+
+    function applyMatch2Action() {
+      var val = inputMatchUrl2.value.trim();
+      if (val && resolveApiUrl(val)) {
+        currentMatchUrl2 = val;
+        try { localStorage.setItem('kkl_match_url_2', val); } catch(e) {}
+        var id = extrahiereMatchId(val) || "---";
+        match2StatusLabel.textContent = 'Parallelspiel #' + id + ' aktiv';
+        match2StatusLabel.style.color = "#34d399";
+        sectionMatch2.style.display = 'block';
+        teams2Display.textContent = "Lade Parallelspiel...";
+        aktualisiereAlleSpiele();
+      } else {
+        alert("Bitte eine gültige Spiel-ID oder URL eingeben.");
+      }
+    }
+
+    function removeMatch2Action() {
+      currentMatchUrl2 = null;
+      inputMatchUrl2.value = "";
+      try { localStorage.removeItem('kkl_match_url_2'); } catch(e) {}
+      sectionMatch2.style.display = 'none';
+      match2StatusLabel.textContent = "Kein Parallelspiel aktiv";
+      match2StatusLabel.style.color = "rgba(255,255,255,0.4)";
+    }
+
+    /* ================= 10. DRAG & DROP ================= */
+    var isDragging = false, startX = 0, startY = 0, currentX = 0, currentY = 0;
+    function onDragStart(e) {
+      var target = e.target;
+      while (target && target !== liveOverlay) {
+        if (target.tagName === 'BUTTON' || target.tagName === 'INPUT') return;
+        target = target.parentElement;
+      }
+      isDragging = true;
+      var clientX = e.type.indexOf('touch') !== -1 ? e.touches[0].clientX : e.clientX;
+      var clientY = e.type.indexOf('touch') !== -1 ? e.touches[0].clientY : e.clientY;
+      startX = clientX - currentX;
+      startY = clientY - currentY;
+    }
+
+    function onDrag(e) {
+      if (!isDragging) return;
+      var clientX = e.type.indexOf('touch') !== -1 ? e.touches[0].clientX : e.clientX;
+      var clientY = e.type.indexOf('touch') !== -1 ? e.touches[0].clientY : e.clientY;
+      currentX = clientX - startX;
+      currentY = clientY - startY;
+      var transform = 'translate(' + currentX + 'px, ' + currentY + 'px)';
+      liveOverlay.style.transform = transform;
+      liveOverlay.style.webkitTransform = transform;
+    }
+
+    function onDragEnd() { isDragging = false; }
+    liveOverlay.addEventListener('mousedown', onDragStart);
+    liveOverlay.addEventListener('touchstart', onDragStart, { passive: true });
+    window.addEventListener('mousemove', onDrag);
+    window.addEventListener('touchmove', onDrag, { passive: false });
+    window.addEventListener('mouseup', onDragEnd);
+    window.addEventListener('touchend', onDragEnd);
+
+    /* ================= 11. INITIALISIERUNG ================= */
+    try {
+      var g1 = localStorage.getItem('kkl_match_url_1') || "https://spiel.kickerligakoeln.de/#/live/9098/spielbericht";
+      inputMatchUrl1.value = g1;
+      onInput1Change();
+
+      var savedSize = localStorage.getItem('kkl_box_size') || 25;
+      setBoxSize(savedSize);
+    } catch(e) {}
+  </script>
+</body>
+</html>
